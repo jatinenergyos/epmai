@@ -1,0 +1,45 @@
+@import "./theme/themes.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.375rem;
+    --f-sans: "Archivo", "DejaVu Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  html { scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 140px); height: 100%; }
+  * { @apply border-border; }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--f-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    font-variation-settings: "wdth" 100;
+  }
+  h1, h2, h3 { font-variation-settings: "wdth" 84; letter-spacing: -0.005em; text-wrap: balance; }
+  :focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+}
+
+@layer utilities {
+  .num { font-variant-numeric: tabular-nums; font-variation-settings: "wdth" 88; }
+  .condensed { font-variation-settings: "wdth" 80; }
+  .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+
+/* Horizon ruler — the one bold element: a time axis you click */
+.ruler-seg { position: relative; }
+.ruler-seg::after {
+  content: ""; position: absolute; left: 0; bottom: -7px; width: 1px; height: 6px; background: hsl(var(--muted-foreground) / .5);
+}
+.ruler-seg[data-on="true"] { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+
+/* recharts */
+.recharts-wrapper:focus, .recharts-surface:focus { outline: none; }
+.recharts-cartesian-axis-tick-value { fill: hsl(var(--muted-foreground)); font-size: 11px; }
+.recharts-cartesian-grid line { stroke: hsl(var(--border)); }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
