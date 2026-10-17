@@ -1,0 +1,167 @@
+/* UP DC Demand Calendar — month section.
+   Ported from the standalone prototype; palette + layout scoped under .dc-root so it
+   can't leak into the rest of the app. Base colours (text/surface/line) ride the app
+   theme tokens; the stacked-series and surplus/deficit palette keep the prototype's
+   purpose-built hues, flipped for dark mode the same way themes.css does. */
+.dc-root {
+  --dc-surface: hsl(var(--card));
+  --dc-bg: hsl(var(--background));
+  --dc-line: hsl(var(--border));
+  --dc-grid: hsl(var(--border) / 0.55);
+  --dc-text: hsl(var(--foreground));
+  --dc-text2: hsl(var(--muted-foreground));
+  --dc-muted: hsl(var(--muted-foreground) / 0.72);
+  --dc-accent: hsl(var(--primary));
+  --dc-mono: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  /* stacked series */
+  --dc-s1: #9ec5f4; --dc-s2: #f7b89c; --dc-s3: #94dcc1; --dc-s4: #f6d37f;
+  --dc-s5: #f4bdd2; --dc-s6: #9fd29f; --dc-s7: #bdb5ec; --dc-s8: #f3a9a8;
+  /* surplus / deficit */
+  --dc-good: #1c5cab; --dc-bad: #c62828;
+  --dc-sur: #2a78d6; --dc-def: #e34948; --dc-mid: #f0efec;
+  --dc-surhi: #184f95; --dc-defhi: #a61e1e;
+
+  color: var(--dc-text);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .dc-root {
+    --dc-s1: #3d5f88; --dc-s2: #86533f; --dc-s3: #2f6b56; --dc-s4: #7f6429;
+    --dc-s5: #7f4a60; --dc-s6: #3b6b3b; --dc-s7: #5b5391; --dc-s8: #8a4747;
+    --dc-good: #6da7ec; --dc-bad: #ef6b6b;
+    --dc-sur: #3987e5; --dc-def: #e66767; --dc-mid: #383835;
+    --dc-surhi: #86b6ef; --dc-defhi: #f19a9a;
+  }
+}
+:root[data-theme="dark"] .dc-root {
+  --dc-s1: #3d5f88; --dc-s2: #86533f; --dc-s3: #2f6b56; --dc-s4: #7f6429;
+  --dc-s5: #7f4a60; --dc-s6: #3b6b3b; --dc-s7: #5b5391; --dc-s8: #8a4747;
+  --dc-good: #6da7ec; --dc-bad: #ef6b6b;
+  --dc-sur: #3987e5; --dc-def: #e66767; --dc-mid: #383835;
+  --dc-surhi: #86b6ef; --dc-defhi: #f19a9a;
+}
+
+.dc-root .num,
+.dc-root .dc-mono { font-family: var(--dc-mono); font-variant-numeric: tabular-nums; }
+
+/* controls */
+.dc-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.dc-root button,
+.dc-root select {
+  font: inherit; color: var(--dc-text); background: var(--dc-surface);
+  border: 1px solid var(--dc-line); border-radius: 6px; padding: 6px 10px; cursor: pointer;
+}
+.dc-root button:hover { border-color: var(--dc-muted); }
+.dc-root select { cursor: pointer; }
+.dc-seg { display: inline-flex; border: 1px solid var(--dc-line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.dc-seg button { border: 0; border-radius: 0; padding: 6px 12px; background: var(--dc-surface); color: var(--dc-text2); white-space: nowrap; }
+.dc-seg button[aria-pressed="true"] { background: var(--dc-text); color: var(--dc-surface); }
+.dc-monthbar { display: flex; align-items: center; gap: 8px; }
+.dc-monthbar button { padding: 6px 10px; }
+.dc-root button:disabled { opacity: 0.4; cursor: default; }
+.dc-srcsel { max-width: 260px; }
+
+/* kpis */
+.dc-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 900px) { .dc-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.dc-kpi { background: var(--dc-surface); border: 1px solid var(--dc-line); border-radius: 8px; padding: 8px 12px; }
+.dc-kpi .l { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dc-muted); }
+.dc-kpi .v { font-family: var(--dc-mono); font-size: 19px; font-weight: 500; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.dc-kpi .n { font-size: 12px; color: var(--dc-text2); font-family: var(--dc-mono); }
+.dc-kpi .v.pos { color: var(--dc-good); } .dc-kpi .v.neg { color: var(--dc-bad); }
+
+/* card */
+.dc-card { background: var(--dc-surface); border: 1px solid var(--dc-line); border-radius: 10px; padding: 12px 12px 8px; }
+
+/* legend */
+.dc-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 8px; padding: 0; list-style: none; }
+.dc-legend button { border: 0; background: none; padding: 2px 0; display: inline-flex; align-items: center; gap: 6px; color: var(--dc-text2); font-size: 12.5px; }
+.dc-legend button:hover { border: 0; }
+.dc-legend button[aria-pressed="false"] { opacity: 0.4; text-decoration: line-through; }
+.dc-sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.dc-sw.line { height: 2px; border-radius: 1px; background: var(--dc-text); }
+
+/* calendar */
+.dc-cal-scroll { overflow-x: auto; }
+.dc-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; min-width: 760px; }
+.dc-dow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dc-muted); padding: 0 4px; }
+.dc-cell {
+  background: var(--dc-surface); border: 1px solid var(--dc-line); border-radius: 6px;
+  padding: 3px 5px 2px; display: flex; flex-direction: column; gap: 0;
+  cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%;
+}
+.dc-cell:hover { border-color: var(--dc-muted); }
+.dc-cell[aria-pressed="true"] { border-color: var(--dc-text); box-shadow: 0 0 0 1px var(--dc-text); }
+.dc-cell.empty { background: transparent; border: 1px dashed var(--dc-line); cursor: default; }
+/* Overflow days of a 6-week month wrap into row 1; show their label at the BOTTOM of
+   the cell (chart on top) so they read as trailing days rather than the month's start. */
+.dc-cell.wrapped { flex-direction: column-reverse; }
+.dc-cell.wrapped .top { margin-top: 2px; }
+.dc-cell.wrapped svg { margin-top: 0; }
+.dc-cell .top { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; font-size: 11px; white-space: nowrap; overflow: hidden; }
+.dc-cell .dn { font-weight: 700; font-size: 12px; }
+.dc-cell .dn small { font-weight: 500; color: var(--dc-muted); font-size: 10px; margin-left: 3px; }
+.dc-cell .pk { font-family: var(--dc-mono); font-size: 10px; color: var(--dc-text2); }
+.dc-chip { font-family: var(--dc-mono); font-size: 10px; padding: 0 5px; border-radius: 9px; background: var(--dc-grid); color: var(--dc-good); }
+.dc-chip.neg { color: var(--dc-bad); }
+.dc-chip.nt { color: var(--dc-text2); }
+.dc-cell svg { display: block; width: 100%; height: auto; margin-top: 1px; overflow: visible; }
+.dc-note { color: var(--dc-muted); font-size: 11px; margin: 6px 0 0; }
+
+/* heatmap */
+.dc-hmtop { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; font-size: 12px; color: var(--dc-text2); }
+.dc-hmtop b { color: var(--dc-text); }
+.dc-scale { display: flex; align-items: center; gap: 6px; font-family: var(--dc-mono); font-size: 11px; }
+.dc-scale i { display: inline-block; width: 220px; max-width: 40vw; height: 10px; border-radius: 3px; background: linear-gradient(90deg, var(--dc-defhi), var(--dc-mid) 50%, var(--dc-surhi)); }
+.dc-hm { position: relative; }
+.dc-hm canvas { display: block; width: 100%; cursor: crosshair; }
+
+/* tooltip */
+.dc-tip {
+  position: fixed; pointer-events: none; background: var(--dc-surface); border: 1px solid var(--dc-line);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  min-width: 210px; z-index: 90; /* above the day-detail modal (z-index 70) so it isn't clipped behind it */
+}
+.dc-tip h4 { margin: 0 0 6px; font-size: 12px; font-family: var(--dc-mono); font-weight: 500; }
+.dc-tip .r { display: flex; align-items: center; gap: 6px; justify-content: space-between; padding: 1px 0; }
+.dc-tip .r span:first-child { display: flex; align-items: center; gap: 6px; color: var(--dc-text2); }
+.dc-tip .r b { font-family: var(--dc-mono); font-weight: 500; font-variant-numeric: tabular-nums; }
+.dc-tip .r b.neg, .dc-tip .r .neg { color: var(--dc-bad); }
+.dc-tip .r b.pos, .dc-tip .r .pos { color: var(--dc-good); }
+.dc-tip hr { border: 0; border-top: 1px solid var(--dc-line); margin: 5px 0; }
+.dc-tip .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.dc-tip .sw.line { height: 2px; }
+
+/* day-detail big chart */
+.dc-bigwrap { width: 100%; }
+.dc-big { display: block; width: 100%; height: auto; overflow: visible; }
+
+/* year view */
+.dc-year-svg { display: block; width: 100%; height: auto; overflow: visible; cursor: pointer; }
+.dc-ygh { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: 12px; color: var(--dc-text2); margin-bottom: 6px; }
+.dc-ygh b { color: var(--dc-text); font-size: 13px; }
+.dc-yg { border-collapse: separate; border-spacing: 2px; width: 100%; min-width: 760px; table-layout: fixed; font-family: var(--dc-mono); font-variant-numeric: tabular-nums; }
+.dc-yg th, .dc-yg td { padding: 0; height: 16px; font-size: 10.5px; text-align: center; border: 0; border-radius: 3px; }
+.dc-yg thead th { color: var(--dc-muted); font-weight: 400; background: none; font-size: 10px; }
+.dc-yg tbody th { text-align: left; font-family: var(--dc-mono); font-weight: 600; color: var(--dc-text2); width: 58px; padding-left: 4px; cursor: pointer; }
+.dc-yg tbody th:hover { color: var(--dc-text); text-decoration: underline; }
+.dc-yg td.d { cursor: pointer; background: var(--dc-grid); color: var(--dc-text2); }
+.dc-yg td.d:hover { outline: 1px solid var(--dc-text); }
+.dc-yg td.na { background: none; }
+.dc-yg td.tot { width: 74px; text-align: right; padding-right: 4px; color: var(--dc-text); font-weight: 500; }
+.dc-yg col.mc { width: 58px; }
+.dc-yg col.tc { width: 74px; }
+
+/* values-table modal */
+.dc-ov { position: fixed; inset: 0; z-index: 70; background: rgba(10, 14, 18, 0.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.dc-modal { background: var(--dc-surface); color: var(--dc-text); border: 1px solid var(--dc-line); border-radius: 12px; width: min(1180px, 100%); max-height: calc(100% - 8px); overflow: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35); }
+.dc-mhead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.dc-mhead h3 { margin: 0; font-size: 15px; }
+.dc-vtw { max-height: calc(100vh - 160px); overflow: auto; }
+.dc-vt { border-collapse: collapse; font-size: 11px; font-family: var(--dc-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dc-vt td, .dc-vt th { padding: 3px 5px; border: 1px solid var(--dc-surface); text-align: right; }
+.dc-vt thead th { line-height: 1.1; position: sticky; top: 0; background: var(--dc-surface); color: var(--dc-text2); }
+.dc-vt thead small { font-weight: 400; color: var(--dc-muted); font-size: 9.5px; }
+.dc-vt tbody th { position: sticky; left: 0; background: var(--dc-surface); text-align: left; font-weight: 500; }

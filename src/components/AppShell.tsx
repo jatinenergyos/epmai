@@ -23,10 +23,16 @@ const navActive = { className: "!bg-accent !text-foreground font-semibold" };
 const dockCls = "grid h-10 w-10 place-items-center rounded-full border bg-card text-muted-foreground shadow-md transition-colors hover:bg-accent hover:text-foreground";
 const dockActive = { className: "!border-primary !bg-primary !text-primary-foreground" };
 
+// Mirror useModuleTf's localStorage fallback so the full-width check matches what the page renders.
+const readLocalTf = (key: string): string | null => {
+  try { return localStorage.getItem(key); } catch { return null; }
+};
+
 export function AppShell() {
   const [discom, setDiscom] = useState("north");
   const { palette, mode } = useTheme();
-  const { pathname } = useLocation();
+  const location = useLocation();
+  const { pathname } = location;
   const toastTheme = palette === "tech" ? "dark" : mode === "system" ? "system" : mode;
   const isCommand = pathname === "/";
   const isHorizon = pathname === "/horizon";
@@ -37,8 +43,17 @@ export function AppShell() {
   // the Overview tab — scoped to the open module on the module/row pages.
   const showHorizonStrip = isOverview || isModulesIndex || pathname.startsWith("/modules/");
   const isCell = pathname.startsWith("/cell/");
+  // The Planning-horizon page at Month ahead is the UP DC demand calendar, which wants the full window.
+  const planTf = (location.search as { h?: string }).h ?? readLocalTf("epm.h");
+  const planMod = (location.search as { mod?: string }).mod ?? readLocalTf("epm.mod") ?? "overview";
+  const monthCalMod = planMod === "overview" || planMod === "demand" || planMod === "supply" || planMod === "opt";
+  const isHorizonCalendar = pathname === "/horizon" &&
+    ((planTf === "mo" && monthCalMod) || (planTf === "yr" && (planMod === "overview" || planMod === "demand")));
+  // The Long-term horizon lays out the full-screen load-profile / box-plot grids and the wide
+  // analytics view, so it claims the full window too.
+  const isHorizonLongTerm = pathname === "/horizon" && planTf === "lt";
   // Pages that lay out every module or every horizon use the full window; focused pages stay capped.
-  const fullWidth = isCommand || isModulesIndex || pathname === "/snapshot" || pathname.endsWith("/row");
+  const fullWidth = isCommand || isModulesIndex || pathname === "/snapshot" || pathname.endsWith("/row") || isHorizonCalendar || isHorizonLongTerm;
 
   return (
     <TooltipProvider delayDuration={150}>

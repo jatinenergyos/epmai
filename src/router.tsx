@@ -16,10 +16,10 @@ import { NotFound } from "@/pages/NotFound";
 const rootRoute = createRootRoute({
   // h = planning horizon, m = module horizon (single-module pages), mod = module focused on the
   // all-horizons page, t = the open tab on a cell page — all kept separate.
-  validateSearch: (s: Record<string, unknown>): { h?: TfId; m?: TfId; mod?: ModId; t?: string } => ({
+  validateSearch: (s: Record<string, unknown>): { h?: TfId; m?: TfId; mod?: ModId | "overview"; t?: string } => ({
     ...(isTf(s.h) ? { h: s.h } : {}),
     ...(isTf(s.m) ? { m: s.m } : {}),
-    ...(isMod(s.mod) ? { mod: s.mod } : {}),
+    ...(isMod(s.mod) || s.mod === "overview" ? { mod: s.mod as ModId | "overview" } : {}),
     ...(typeof s.t === "string" ? { t: s.t } : {}),
   }),
   component: AppShell,

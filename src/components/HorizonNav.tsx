@@ -9,15 +9,15 @@ import { useHorizon } from "@/lib/horizon";
 import { cn } from "@/lib/utils";
 
 /** Header "Planning horizon" entry rendered as a shadcn Navigation Menu (same as "All modules"):
- *  a trigger showing the active horizon that opens a panel of every horizon. Picking one lands on
- *  the Overview page for that horizon by default. */
+ *  a trigger showing the active horizon that opens a panel of every horizon. Picking one opens the
+ *  Planning-horizon page for that horizon, which leads with the all-module Overview. */
 export function HorizonNav() {
   const { tf } = useHorizon();
   const navigate = useNavigate();
-  // Picking a horizon lands on the all-module Overview for it — the complete at-a-glance view for
-  // that planning horizon.
+  // Picking a horizon opens the Planning-horizon page for it; its module strip defaults to the
+  // Overview (every module at that horizon).
   const pick = (id: typeof TFS[number]["id"]) =>
-    navigate({ to: "/overview", search: (prev: Record<string, unknown>) => ({ ...prev, h: id }) });
+    navigate({ to: "/horizon", search: (prev: Record<string, unknown>) => ({ ...prev, h: id }) });
 
   return (
     <NavigationMenu>

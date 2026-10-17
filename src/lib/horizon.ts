@@ -3,8 +3,11 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { isMod, isTf, type ModId, type TfId } from "@/data/engine";
 
 export const DEFAULT_TF: TfId = "id";
-// The Planning-horizon page lands on Analytics, which leads with a cross-module summary.
-export const DEFAULT_MOD: ModId = "analytics";
+// The module strip's selection on the Planning-horizon page is either a real module or the
+// "Overview" tab, which lays out every module at the chosen horizon. The page lands on Overview.
+export type RulerSel = ModId | "overview";
+export const DEFAULT_MOD: RulerSel = "overview";
+const isSel = (v: unknown): v is RulerSel => v === "overview" || isMod(v);
 
 // Last selections are remembered in localStorage so they survive reloads and navigating away and
 // back, instead of snapping to the defaults. The URL still wins when it carries a value.
@@ -12,8 +15,8 @@ const KEY_H = "epm.h", KEY_M = "epm.m", KEY_MOD = "epm.mod";
 const loadTf = (key: string): TfId | null => {
   try { const v = localStorage.getItem(key); return isTf(v) ? v : null; } catch { return null; }
 };
-const loadMod = (key: string): ModId | null => {
-  try { const v = localStorage.getItem(key); return isMod(v) ? v : null; } catch { return null; }
+const loadSel = (key: string): RulerSel | null => {
+  try { const v = localStorage.getItem(key); return isSel(v) ? v : null; } catch { return null; }
 };
 const persist = (key: string, v: string) => {
   try { localStorage.setItem(key, v); } catch { /* storage unavailable — ignore */ }
@@ -50,11 +53,11 @@ export function useModuleTf() {
 /** Which module the all-horizons page (/horizon) is focused on (?mod=). The ruler on that page
  *  picks the module; the page then lays it out across every planning horizon. */
 export function useHorizonModule() {
-  const search = useSearch({ strict: false }) as { mod?: ModId };
+  const search = useSearch({ strict: false }) as { mod?: RulerSel };
   const navigate = useNavigate();
-  const mod: ModId = (isMod(search.mod) ? search.mod : loadMod(KEY_MOD)) ?? DEFAULT_MOD;
-  useEffect(() => { if (isMod(search.mod)) persist(KEY_MOD, search.mod); }, [search.mod]);
-  const setMod = (m: ModId) => {
+  const mod: RulerSel = (isSel(search.mod) ? search.mod : loadSel(KEY_MOD)) ?? DEFAULT_MOD;
+  useEffect(() => { if (isSel(search.mod)) persist(KEY_MOD, search.mod); }, [search.mod]);
+  const setMod = (m: RulerSel) => {
     persist(KEY_MOD, m);
     navigate({ to: ".", search: (prev: Record<string, unknown>) => ({ ...prev, mod: m }), replace: true });
   };
