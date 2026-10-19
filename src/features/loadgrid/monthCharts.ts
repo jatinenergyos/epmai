@@ -55,6 +55,114 @@ export function miniMonthOptions(t: ChartTheme, kind: Kind, days: DayRow[], heig
   }
 }
 
+/** A group plotted on the "Graph Type" grouped charts (Category / Technology /
+ *  Variable cost / Plants) — see ./breakdown.ts. */
+export interface BoxGroup { name: string; color: string }
+
+/** Grouped load-profile line for a grid cell / viewer: one line per group,
+ *  averaged across the cell's days (per-day-per-group lines would be too busy),
+ *  over the 96 blocks of a day. `splitDay` returns, for one day, the per-group
+ *  96-block series in the same order as `groups`. */
+function groupedDayProfiles(days: DayRow[], groups: BoxGroup[], splitDay: (d: DayRow) => number[][]): number[][] {
+  const n = days.length || 1
+  const sums = groups.map(() => new Array(96).fill(0))
+  for (const d of days) {
+    const split = splitDay(d)
+    groups.forEach((_, gi) => { for (let b = 0; b < 96; b++) sums[gi][b] += split[gi][b] })
+  }
+  return sums.map((s) => s.map((v) => v / n))
+}
+
+export function miniGroupedLineOptions(
+  t: ChartTheme, days: DayRow[], groups: BoxGroup[], splitDay: (d: DayRow) => number[][],
+  height = 150, width?: number, tiny = false,
+): ChartOptions {
+  const common = baseChart(t, {
+    chart: { height, width, spacing: tiny ? [4, 4, 3, 3] : [6, 8, 6, 4], type: "line" },
+    legend: { enabled: false },
+    xAxis: { visible: false, min: 0, max: 95 },
+    yAxis: { title: { text: undefined }, labels: { enabled: !tiny, style: { fontSize: "10px" } }, tickAmount: tiny ? 3 : 4 },
+    tooltip: { enabled: true, shared: true, valueDecimals: 0 },
+    plotOptions: { line: { lineWidth: 1.1, marker: { enabled: false }, enableMouseTracking: true, animation: false } },
+  })
+  const profiles = groupedDayProfiles(days, groups, splitDay)
+  return {
+    ...common,
+    series: groups.map((g, gi) => ({ type: "line", name: g.name, color: g.color, data: profiles[gi] })),
+  }
+}
+
+export function fullGroupedLineOptions(
+  t: ChartTheme, days: DayRow[], groups: BoxGroup[], splitDay: (d: DayRow) => number[][], yLabel = "MW",
+): ChartOptions {
+  const profiles = groupedDayProfiles(days, groups, splitDay)
+  return baseChart(t, {
+    chart: { type: "line", zooming: { type: "x" } },
+    xAxis: { categories: INTERVAL_LABELS, tickInterval: 8, title: { text: "Time of day" } },
+    yAxis: { title: { text: yLabel } },
+    legend: sideLegend(t, 520),
+    plotOptions: { series: { lineWidth: 1.6, marker: { enabled: false }, animation: false } },
+    tooltip: { shared: true, valueSuffix: " MW", valueDecimals: 0 },
+    series: groups.map((g, gi) => ({ type: "line", name: g.name, color: g.color, data: profiles[gi] })),
+  })
+}
+
+/** Compact grouped-box chart for a grid cell: one boxplot series per group
+ *  (Category / Technology / Variable cost / Plants), sharing the day axis.
+ *  `splitDay` returns, for one day, the per-group 96-block series in the same
+ *  order as `groups`. */
+export function miniGroupedBoxOptions(
+  t: ChartTheme, days: DayRow[], groups: BoxGroup[], splitDay: (d: DayRow) => number[][],
+  height = 150, width?: number, tiny = false,
+): ChartOptions {
+  const common = baseChart(t, {
+    chart: { height, width, spacing: tiny ? [4, 4, 3, 3] : [6, 8, 6, 4], type: "boxplot" },
+    legend: { enabled: false },
+    xAxis: { visible: false, categories: days.map((d) => String(d.day)) },
+    yAxis: { title: { text: undefined }, labels: { enabled: !tiny, style: { fontSize: "10px" } }, tickAmount: tiny ? 3 : 4 },
+    tooltip: { enabled: true, valueDecimals: 0 },
+    plotOptions: { boxplot: { animation: false } },
+  })
+  const perDay = days.map((d) => splitDay(d).map(boxStats))
+  return {
+    ...common,
+    series: groups.map((g, gi) => ({
+      type: "boxplot",
+      name: g.name,
+      color: g.color,
+      data: perDay.map((stats) => {
+        const b = stats[gi]
+        return [b.low, b.q1, b.median, b.q3, b.high]
+      }),
+    })),
+  }
+}
+
+/** Full-detail grouped-box chart for the fullscreen / comparison viewer — the
+ *  "Graph Type" counterpart to `fullMonthOptions`'s single-series box plot. */
+export function fullGroupedBoxOptions(
+  t: ChartTheme, days: DayRow[], groups: BoxGroup[], splitDay: (d: DayRow) => number[][],
+  yLabel = "MW", dayLabel: (d: DayRow) => string = (d) => String(d.day), xTitle = "Day of month",
+): ChartOptions {
+  const perDay = days.map((d) => splitDay(d).map(boxStats))
+  return baseChart(t, {
+    chart: { type: "boxplot" },
+    xAxis: { categories: days.map(dayLabel), title: { text: xTitle } },
+    yAxis: { title: { text: yLabel } },
+    legend: sideLegend(t, 520),
+    tooltip: { valueDecimals: 0 },
+    series: groups.map((g, gi) => ({
+      type: "boxplot",
+      name: g.name,
+      color: g.color,
+      data: perDay.map((stats) => {
+        const b = stats[gi]
+        return [b.low, b.q1, b.median, b.q3, b.high]
+      }),
+    })),
+  })
+}
+
 /** Full-detail chart for the fullscreen / comparison viewer. `dayLabel` names each
  *  day (series name for lines, x category for the box plot) — for a month it is the
  *  day number; for a season spanning several months it is "Apr 03". */
