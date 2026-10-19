@@ -559,7 +559,7 @@ function tipHtml(D: Data, i: number, b: number, o: {
     const bodyExtra = o.mode === "dem"
       ? "<hr>" + tail(av, dem)
       : `<hr><div class="r"><span>Share of total supply</span><b>${av ? ((v / av) * 100).toFixed(1) + "%" : "–"}</b></div>` +
-        `<div class="r"><span>Total supply (DC)</span><b>${fmt(av)}</b></div><div class="r"><span>Demand met</span><b>${fmt(dem)}</b></div>`;
+      `<div class="r"><span>Total supply (DC)</span><b>${fmt(av)}</b></div><div class="r"><span>Demand met</span><b>${fmt(dem)}</b></div>`;
     return head + `<div class="r"><span><i class="sw" style="background:${inf.fill}"></i>${inf.name}</span><b>${fmt(v)}</b></div>` + bodyExtra;
   }
   if (o.mode === "sur") return head + tail(av, dem);
@@ -597,8 +597,8 @@ function DayModal({ D, i, mode, view, off, demOn, srcSer, srcInfo, series, names
   const single = mode === "dem" ? D.dem[i] : srcSer(i);
   const label = mode === "dem" ? "Demand met · MW"
     : mode === "src" ? srcInfo().name + " · MW"
-    : mode === "sur" ? "Surplus / deficit · supply − demand, MW"
-    : "Supply by source" + (view === "plant" ? " (top plants)" : "") + " · stacked declared capacity, MW · line = demand met";
+      : mode === "sur" ? "Surplus / deficit · supply − demand, MW"
+        : "Supply by source" + (view === "plant" ? " (top plants)" : "") + " · stacked declared capacity, MW · line = demand met";
 
   const mu = (a: number[]) => a.reduce((x, y) => x + y, 0) * 0.00025;
   const kpis: [string, string, string, string][] = (() => {
@@ -861,104 +861,374 @@ function YearView({ D, PI, modes, defaultMode }: { D: Data; PI: PlantInfo[]; mod
   );
 }
 
+// function YearCharts({ D, Y, months, onDay, showTip, hideTip }: {
+//   D: Data; Y: YData; months: string[]; onDay: (i: number) => void;
+//   showTip: (e: { clientX: number; clientY: number }, html: string) => void; hideTip: () => void;
+// }) {
+//   const n = D.dates.length;
+//   const [hoverI, setHoverI] = useState<number | null>(null);
+//   const stRef = useRef<SVGSVGElement>(null);
+//   const sdRef = useRef<SVGSVGElement>(null);
+//   const W = 1200, H1 = 300, H2 = 150, m = { l: 56, r: 12, t: 10, b: 22 };
+//   const x = (i: number) => m.l + (i * (W - m.l - m.r)) / (n - 1);
+//   const lineN = (arr: number[], yFn: (v: number) => number) => arr.map((v, i) => (i ? "L" : "M") + x(i) + "," + yFn(v)).join("");
+//   const areaN = (lo: number[], hi: number[], yFn: (v: number) => number) => {
+//     let d = "M" + x(0) + "," + yFn(hi[0]);
+//     for (let i = 1; i < n; i++) d += "L" + x(i) + "," + yFn(hi[i]);
+//     for (let i = n - 1; i >= 0; i--) d += "L" + x(i) + "," + yFn(lo[i]);
+//     return d + "Z";
+//   };
+
+//   const { layers, pT, nT } = useMemo(() => {
+//     const pT = new Array(n).fill(0), nT = new Array(n).fill(0);
+//     const layers: { k: number; pos: [number[], number[]]; neg: [number[], number[]] }[] = [];
+//     for (let k = 0; k < 8; k++) {
+//       const p0 = pT.slice(), n0 = nT.slice();
+//       for (let i = 0; i < n; i++) { const v = Y.cat[i][k]; if (v > 0) pT[i] += v; else nT[i] += v; }
+//       layers.push({ k, pos: [p0, pT.slice()], neg: [n0, nT.slice()] });
+//     }
+//     return { layers, pT, nT };
+//   }, [Y, n]);
+
+//   // axis frame builder
+//   const axis = (H: number, lo0: number, hi0: number) => {
+//     const step = niceStep(hi0 - lo0 || 1, 4);
+//     const hi = Math.ceil(hi0 / step) * step, lo = Math.floor(lo0 / step) * step;
+//     const yFn = (v: number) => m.t + ((hi - v) * (H - m.t - m.b)) / (hi - lo || 1);
+//     const els: React.ReactNode[] = [];
+//     for (let v = lo; v <= hi + 1e-6; v += step) {
+//       els.push(<line key={"g" + v} x1={m.l} x2={W - m.r} y1={yFn(v)} y2={yFn(v)} stroke={v === 0 ? cssv("--dc-muted") : cssv("--dc-grid")} />);
+//       els.push(<text key={"t" + v} x={m.l - 8} y={yFn(v) + 4} textAnchor="end" className="num" fontSize={11} fill={cssv("--dc-muted")}>{kf(v)}</text>);
+//     }
+//     months.forEach((mk) => {
+//       const i = D.dates.indexOf(mk + "-01"); if (i < 0) return;
+//       els.push(<line key={"ml" + mk} x1={x(i)} x2={x(i)} y1={m.t} y2={H - m.b} stroke={cssv("--dc-grid")} />);
+//       els.push(<text key={"mt" + mk} x={x(i) + 3} y={H - 6} textAnchor="start" className="num" fontSize={11} fill={cssv("--dc-muted")}>{MON[+mk.slice(5) - 1].slice(0, 3) + " " + mk.slice(2, 4)}</text>);
+//     });
+//     return { yFn, els };
+//   };
+
+//   const topAx = axis(H1, Math.min(0, ...nT), Math.max(...pT, ...Y.dem));
+//   const botAx = axis(H2, Math.min(0, ...Y.mn), Math.max(0, ...Y.mn));
+//   const bw = Math.max(1, (W - m.l - m.r) / n - 0.6);
+
+//   const yTipHtml = (i: number) => {
+//     const d = D.dates[i], cat = Y.cat[i], sup = cat.reduce((a, b) => a + b, 0);
+//     let h = `<h4>${+d.slice(8)} ${MON[+d.slice(5, 7) - 1].slice(0, 3)} ${d.slice(0, 4)} · daily energy, MU</h4>`;
+//     for (let k = 7; k >= 0; k--) h += `<div class="r"><span><i class="sw" style="background:${cssv(COLS[k])}"></i>${D.cats[k]}</span><b>${cat[k].toFixed(1)}</b></div>`;
+//     h += `<hr><div class="r"><span>Total supply</span><b>${sup.toFixed(1)}</b></div><div class="r"><span>Demand met</span><b>${Y.dem[i].toFixed(1)}</b></div>`;
+//     h += `<hr><div class="r"><span>Tightest block</span><b class="${Y.mn[i] < 0 ? "neg" : "pos"}">${Y.mn[i] >= 0 ? "+" : ""}${fmt(Y.mn[i])} · B${Y.mb[i] + 1}</b></div>`;
+//     return h;
+//   };
+//   const idxAt = (e: React.PointerEvent, ref: React.RefObject<SVGSVGElement | null>) => {
+//     const r = ref.current!.getBoundingClientRect();
+//     const px = ((e.clientX - r.left) / r.width) * W;
+//     const i = Math.round(((px - m.l) / (W - m.l - m.r)) * (n - 1));
+//     return i < 0 || i >= n ? null : i;
+//   };
+//   const onMove = (ref: React.RefObject<SVGSVGElement | null>) => (e: React.PointerEvent) => {
+//     const i = idxAt(e, ref); if (i == null) { setHoverI(null); hideTip(); return; }
+//     setHoverI(i); showTip(e, yTipHtml(i));
+//   };
+//   const onLeave = () => { setHoverI(null); hideTip(); };
+//   const onClick = (ref: React.RefObject<SVGSVGElement | null>) => (e: React.MouseEvent) => {
+//     const r = ref.current!.getBoundingClientRect();
+//     const px = ((e.clientX - r.left) / r.width) * W;
+//     const i = Math.round(((px - m.l) / (W - m.l - m.r)) * (n - 1));
+//     if (i >= 0 && i < n) onDay(i);
+//   };
+
+//   return (
+//     <>
+//       {/* <svg ref={stRef} viewBox={`0 0 ${W} ${H1}`} className="dc-year-svg" onPointerMove={onMove(stRef)} onPointerLeave={onLeave} onClick={onClick(stRef)} role="img" aria-label="Daily energy by category and demand over the year">
+//         <g>{topAx.els}</g>
+//         {layers.map(({ k, pos, neg }) => [pos, neg].map((q, qi) => (
+//           q[1].every((v, i) => v === q[0][i]) ? null :
+//           <path key={"l" + k + qi} d={areaN(q[0], q[1], topAx.yFn)} fill={cssv(COLS[k])} stroke={cssv("--dc-surface")} strokeWidth={0.5} />
+//         )))}
+//         <path d={lineN(Y.dem, topAx.yFn)} fill="none" stroke={cssv("--dc-surface")} strokeWidth={4} />
+//         <path d={lineN(Y.dem, topAx.yFn)} fill="none" stroke={cssv("--dc-text")} strokeWidth={1.6} />
+//         {hoverI != null && <line x1={x(hoverI)} x2={x(hoverI)} y1={m.t} y2={H1 - m.b} stroke={cssv("--dc-text2")} strokeDasharray="3 3" />}
+//       </svg> */}
+
+//       <div className="dc-note" style={{ margin: "8px 0 4px" }}><b style={{ color: cssv("--dc-text") }}>Daily surplus / deficit</b> · tightest block of each day, MW (below zero = deficit)</div>
+//       <svg ref={sdRef} viewBox={`0 0 ${W} ${H2}`} className="dc-year-svg" onPointerMove={onMove(sdRef)} onPointerLeave={onLeave} onClick={onClick(sdRef)} role="img" aria-label="Tightest block surplus or deficit for each day">
+//         <g>{botAx.els}</g>
+//         {Y.mn.map((v, i) => (
+//           <rect key={i} x={x(i) - bw / 2} y={Math.min(botAx.yFn(0), botAx.yFn(v))} width={bw} height={Math.abs(botAx.yFn(v) - botAx.yFn(0))} fill={v < 0 ? cssv("--dc-def") : cssv("--dc-sur")} fillOpacity={v < 0 ? 0.85 : 0.5} />
+//         ))}
+//         {hoverI != null && <line x1={x(hoverI)} x2={x(hoverI)} y1={m.t} y2={H2 - m.b} stroke={cssv("--dc-text2")} strokeDasharray="3 3" />}
+//       </svg>
+//     </>
+//   );
+// }
+
+/* ---------- Season configuration & Box-plot math ---------- */
+type BoxStats = { min: number; q1: number; med: number; q3: number; max: number };
+
+function calcBoxStats(arr: number[]): BoxStats {
+  const sorted = [...arr].sort((a, b) => a - b);
+  const n = sorted.length;
+  const quantile = (q: number) => {
+    const pos = (n - 1) * q;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    return sorted[base + 1] !== undefined ? sorted[base] + rest * (sorted[base + 1] - sorted[base]) : sorted[base];
+  };
+  return {
+    min: sorted[0],
+    q1: quantile(0.25),
+    med: quantile(0.5),
+    q3: quantile(0.75),
+    max: sorted[n - 1],
+  };
+}
+
+// 1-based month matching
+const SEASONS_DEF: { name: string; label: string; months: number[] }[] = [
+  { name: "Winter", label: "Jan – Feb", months: [1, 2] },
+  { name: "Spring Onset", label: "Mar", months: [3] },
+  { name: "Summer Peak", label: "Apr – May", months: [4, 5] },
+  { name: "SW Monsoon Onset", label: "Jun", months: [6] },
+  { name: "SW Monsoon", label: "Jul – Aug", months: [7, 8] },
+  { name: "Monsoon Retreat", label: "Sep", months: [9] },
+  { name: "Post-Monsoon", label: "Oct", months: [10] },
+  { name: "NE Monsoon", label: "Nov", months: [11] },
+  { name: "Late Winter", label: "Dec", months: [12] },
+];
+
 function YearCharts({ D, Y, months, onDay, showTip, hideTip }: {
   D: Data; Y: YData; months: string[]; onDay: (i: number) => void;
   showTip: (e: { clientX: number; clientY: number }, html: string) => void; hideTip: () => void;
 }) {
   const n = D.dates.length;
   const [hoverI, setHoverI] = useState<number | null>(null);
-  const stRef = useRef<SVGSVGElement>(null);
   const sdRef = useRef<SVGSVGElement>(null);
-  const W = 1200, H1 = 300, H2 = 150, m = { l: 56, r: 12, t: 10, b: 22 };
-  const x = (i: number) => m.l + (i * (W - m.l - m.r)) / (n - 1);
-  const lineN = (arr: number[], yFn: (v: number) => number) => arr.map((v, i) => (i ? "L" : "M") + x(i) + "," + yFn(v)).join("");
-  const areaN = (lo: number[], hi: number[], yFn: (v: number) => number) => {
-    let d = "M" + x(0) + "," + yFn(hi[0]);
-    for (let i = 1; i < n; i++) d += "L" + x(i) + "," + yFn(hi[i]);
-    for (let i = n - 1; i >= 0; i--) d += "L" + x(i) + "," + yFn(lo[i]);
-    return d + "Z";
-  };
 
-  const { layers, pT, nT } = useMemo(() => {
-    const pT = new Array(n).fill(0), nT = new Array(n).fill(0);
-    const layers: { k: number; pos: [number[], number[]]; neg: [number[], number[]] }[] = [];
-    for (let k = 0; k < 8; k++) {
-      const p0 = pT.slice(), n0 = nT.slice();
-      for (let i = 0; i < n; i++) { const v = Y.cat[i][k]; if (v > 0) pT[i] += v; else nT[i] += v; }
-      layers.push({ k, pos: [p0, pT.slice()], neg: [n0, nT.slice()] });
-    }
-    return { layers, pT, nT };
-  }, [Y, n]);
+  // Layout: Increased top and bottom margins for the dual X-axes
+  const W = 1200, H2 = 280, m = { l: 56, r: 24, t: 38, b: 36 };
+  const x = (i: number) => m.l + (i * (W - m.l - m.r)) / Math.max(1, n - 1);
 
-  // axis frame builder
-  const axis = (H: number, lo0: number, hi0: number) => {
-    const step = niceStep(hi0 - lo0 || 1, 4);
-    const hi = Math.ceil(hi0 / step) * step, lo = Math.floor(lo0 / step) * step;
-    const yFn = (v: number) => m.t + ((hi - v) * (H - m.t - m.b)) / (hi - lo || 1);
-    const els: React.ReactNode[] = [];
-    for (let v = lo; v <= hi + 1e-6; v += step) {
-      els.push(<line key={"g" + v} x1={m.l} x2={W - m.r} y1={yFn(v)} y2={yFn(v)} stroke={v === 0 ? cssv("--dc-muted") : cssv("--dc-grid")} />);
-      els.push(<text key={"t" + v} x={m.l - 8} y={yFn(v) + 4} textAnchor="end" className="num" fontSize={11} fill={cssv("--dc-muted")}>{kf(v)}</text>);
-    }
-    months.forEach((mk) => {
-      const i = D.dates.indexOf(mk + "-01"); if (i < 0) return;
-      els.push(<line key={"ml" + mk} x1={x(i)} x2={x(i)} y1={m.t} y2={H - m.b} stroke={cssv("--dc-grid")} />);
-      els.push(<text key={"mt" + mk} x={x(i) + 3} y={H - 6} textAnchor="start" className="num" fontSize={11} fill={cssv("--dc-muted")}>{MON[+mk.slice(5) - 1].slice(0, 3) + " " + mk.slice(2, 4)}</text>);
+  // 1. Calculate box plot statistics per day across all 96 blocks
+  const dayBoxes = useMemo(() => {
+    return D.dates.map((_, i) => calcBoxStats(sur(D, i)));
+  }, [D]);
+
+  // Overall Min and Max across all days for Y-scale
+  const [globalMin, globalMax] = useMemo(() => {
+    let min = 0, max = 0;
+    dayBoxes.forEach((b) => {
+      if (b.min < min) min = b.min;
+      if (b.max > max) max = b.max;
     });
-    return { yFn, els };
-  };
+    return [min, max || 1];
+  }, [dayBoxes]);
 
-  const topAx = axis(H1, Math.min(0, ...nT), Math.max(...pT, ...Y.dem));
-  const botAx = axis(H2, Math.min(0, ...Y.mn), Math.max(0, ...Y.mn));
-  const bw = Math.max(1, (W - m.l - m.r) / n - 0.6);
+  // Y-axis grid & scale
+  const step = niceStep(globalMax - globalMin || 1, 5);
+  const ymax = Math.ceil(globalMax / step) * step;
+  const ymin = Math.floor(globalMin / step) * step;
+  const yFn = (v: number) => m.t + ((ymax - v) * (H2 - m.t - m.b)) / (ymax - ymin || 1);
 
-  const yTipHtml = (i: number) => {
-    const d = D.dates[i], cat = Y.cat[i], sup = cat.reduce((a, b) => a + b, 0);
-    let h = `<h4>${+d.slice(8)} ${MON[+d.slice(5, 7) - 1].slice(0, 3)} ${d.slice(0, 4)} · daily energy, MU</h4>`;
-    for (let k = 7; k >= 0; k--) h += `<div class="r"><span><i class="sw" style="background:${cssv(COLS[k])}"></i>${D.cats[k]}</span><b>${cat[k].toFixed(1)}</b></div>`;
-    h += `<hr><div class="r"><span>Total supply</span><b>${sup.toFixed(1)}</b></div><div class="r"><span>Demand met</span><b>${Y.dem[i].toFixed(1)}</b></div>`;
-    h += `<hr><div class="r"><span>Tightest block</span><b class="${Y.mn[i] < 0 ? "neg" : "pos"}">${Y.mn[i] >= 0 ? "+" : ""}${fmt(Y.mn[i])} · B${Y.mb[i] + 1}</b></div>`;
-    return h;
-  };
-  const idxAt = (e: React.PointerEvent, ref: React.RefObject<SVGSVGElement | null>) => {
-    const r = ref.current!.getBoundingClientRect();
+  // 2. Identify contiguous seasonal segments in the dataset
+  const seasonBands = useMemo(() => {
+    if (!n) return [];
+    const bands: { name: string; sub: string; startI: number; endI: number }[] = [];
+    let curIdx = 0;
+
+    const getSeason = (ds: string) => {
+      const mo = +ds.slice(5, 7);
+      return SEASONS_DEF.find((s) => s.months.includes(mo)) || { name: "Other", label: "" };
+    };
+
+    let curSeason = getSeason(D.dates[0]);
+
+    for (let i = 1; i < n; i++) {
+      const s = getSeason(D.dates[i]);
+      if (s.name !== curSeason.name) {
+        bands.push({ name: curSeason.name, sub: curSeason.label, startI: curIdx, endI: i - 1 });
+        curSeason = s;
+        curIdx = i;
+      }
+    }
+    bands.push({ name: curSeason.name, sub: curSeason.label, startI: curIdx, endI: n - 1 });
+    return bands;
+  }, [D.dates, n]);
+
+  // Y-axis gridlines and labels
+  const yGridEls: React.ReactNode[] = [];
+  for (let v = ymin; v <= ymax + 1e-6; v += step) {
+    const yPos = yFn(v);
+    yGridEls.push(
+      <line key={"g" + v} x1={m.l} x2={W - m.r} y1={yPos} y2={yPos} stroke={v === 0 ? "rgba(0,0,0,0.25)" : "rgba(0,0,0,0.06)"} strokeWidth={v === 0 ? 1 : 0.8} />
+    );
+    yGridEls.push(
+      <text key={"t" + v} x={m.l - 8} y={yPos + 4} textAnchor="end" className="num" fontSize={11} fill={cssv("--dc-muted")}>
+        {kf(v)}
+      </text>
+    );
+  }
+
+  // Pointer & Click handlers
+  const onMove = (e: React.PointerEvent) => {
+    if (!sdRef.current) return;
+    const r = sdRef.current.getBoundingClientRect();
     const px = ((e.clientX - r.left) / r.width) * W;
     const i = Math.round(((px - m.l) / (W - m.l - m.r)) * (n - 1));
-    return i < 0 || i >= n ? null : i;
+    if (i < 0 || i >= n) {
+      setHoverI(null);
+      hideTip();
+      return;
+    }
+    setHoverI(i);
+
+    const b = dayBoxes[i];
+    const d = D.dates[i];
+    const tipHtml = `
+      <h4>${+d.slice(8)} ${MON[+d.slice(5, 7) - 1].slice(0, 3)} ${d.slice(0, 4)}</h4>
+      <div class="r"><span>Max Surplus</span><b class="pos">+${fmt(b.max)}</b></div>
+      <div class="r"><span>Q3 (75%)</span><b>${fmt(b.q3)}</b></div>
+      <div class="r"><span>Median</span><b>${fmt(b.med)}</b></div>
+      <div class="r"><span>Q1 (25%)</span><b>${fmt(b.q1)}</b></div>
+      <div class="r"><span>Max Deficit (Min)</span><b class="${b.min < 0 ? "neg" : "pos"}">${b.min < 0 ? "" : "+"}${fmt(b.min)}</b></div>
+    `;
+    showTip(e, tipHtml);
   };
-  const onMove = (ref: React.RefObject<SVGSVGElement | null>) => (e: React.PointerEvent) => {
-    const i = idxAt(e, ref); if (i == null) { setHoverI(null); hideTip(); return; }
-    setHoverI(i); showTip(e, yTipHtml(i));
+
+  const onLeave = () => {
+    setHoverI(null);
+    hideTip();
   };
-  const onLeave = () => { setHoverI(null); hideTip(); };
-  const onClick = (ref: React.RefObject<SVGSVGElement | null>) => (e: React.MouseEvent) => {
-    const r = ref.current!.getBoundingClientRect();
+
+  const onClick = (e: React.MouseEvent) => {
+    if (!sdRef.current) return;
+    const r = sdRef.current.getBoundingClientRect();
     const px = ((e.clientX - r.left) / r.width) * W;
     const i = Math.round(((px - m.l) / (W - m.l - m.r)) * (n - 1));
     if (i >= 0 && i < n) onDay(i);
   };
 
+  // Box plot dimensions
+  const colW = (W - m.l - m.r) / Math.max(1, n);
+  const boxW = Math.max(3, Math.min(10, colW * 0.75));
+  const capW = boxW * 0.65;
+
   return (
     <>
-      <div className="dc-note" style={{ margin: "0 0 4px" }}><b style={{ color: cssv("--dc-text") }}>Daily energy</b> · supply by category (stacked, MU) vs demand met (line) · hover for values, click a day to open it full size</div>
-      <svg ref={stRef} viewBox={`0 0 ${W} ${H1}`} className="dc-year-svg" onPointerMove={onMove(stRef)} onPointerLeave={onLeave} onClick={onClick(stRef)} role="img" aria-label="Daily energy by category and demand over the year">
-        <g>{topAx.els}</g>
-        {layers.map(({ k, pos, neg }) => [pos, neg].map((q, qi) => (
-          q[1].every((v, i) => v === q[0][i]) ? null :
-          <path key={"l" + k + qi} d={areaN(q[0], q[1], topAx.yFn)} fill={cssv(COLS[k])} stroke={cssv("--dc-surface")} strokeWidth={0.5} />
-        )))}
-        <path d={lineN(Y.dem, topAx.yFn)} fill="none" stroke={cssv("--dc-surface")} strokeWidth={4} />
-        <path d={lineN(Y.dem, topAx.yFn)} fill="none" stroke={cssv("--dc-text")} strokeWidth={1.6} />
-        {hoverI != null && <line x1={x(hoverI)} x2={x(hoverI)} y1={m.t} y2={H1 - m.b} stroke={cssv("--dc-text2")} strokeDasharray="3 3" />}
-      </svg>
+      <div className="dc-note" style={{ margin: "8px 0 4px", display: "flex", justifyContent: "space-between" }}>
+        <span>
+          <b style={{ color: cssv("--dc-text") }}>Daily Demand Distribution</b> · Season wise distribution (Min, Q1, Median, Q3, Max)
+        </span>
+        <span style={{ fontSize: 11, color: cssv("--dc-muted") }}>Click a bar to inspect the day</span>
+      </div>
 
-      <div className="dc-note" style={{ margin: "8px 0 4px" }}><b style={{ color: cssv("--dc-text") }}>Daily surplus / deficit</b> · tightest block of each day, MW (below zero = deficit)</div>
-      <svg ref={sdRef} viewBox={`0 0 ${W} ${H2}`} className="dc-year-svg" onPointerMove={onMove(sdRef)} onPointerLeave={onLeave} onClick={onClick(sdRef)} role="img" aria-label="Tightest block surplus or deficit for each day">
-        <g>{botAx.els}</g>
-        {Y.mn.map((v, i) => (
-          <rect key={i} x={x(i) - bw / 2} y={Math.min(botAx.yFn(0), botAx.yFn(v))} width={bw} height={Math.abs(botAx.yFn(v) - botAx.yFn(0))} fill={v < 0 ? cssv("--dc-def") : cssv("--dc-sur")} fillOpacity={v < 0 ? 0.85 : 0.5} />
-        ))}
-        {hoverI != null && <line x1={x(hoverI)} x2={x(hoverI)} y1={m.t} y2={H2 - m.b} stroke={cssv("--dc-text2")} strokeDasharray="3 3" />}
+      <svg
+        ref={sdRef}
+        viewBox={`0 0 ${W} ${H2}`}
+        className="dc-year-svg"
+        onPointerMove={onMove}
+        onPointerLeave={onLeave}
+        onClick={onClick}
+        role="img"
+        aria-label="Box plot of daily surplus/deficit by season"
+        style={{ width: "100%", height: "auto", overflow: "visible" }}
+      >
+        {/* Background Y-Grid */}
+        <g>{yGridEls}</g>
+
+        {/* --- TOP X-AXIS: Seasons --- */}
+        <g className="dc-season-axis">
+          {seasonBands.map((band, k) => {
+            const x1 = x(band.startI) - colW / 2;
+            const x2 = x(band.endI) + colW / 2;
+            const cx = (x1 + x2) / 2;
+
+            return (
+              <g key={"sb" + k}>
+                {/* Vertical Season Divider */}
+                <line x1={x1} x2={x1} y1={m.t - 26} y2={H2 - m.b + 6} stroke="rgba(0,0,0,0.12)" strokeDasharray="3 3" />
+                {/* Top border bracket */}
+                <line x1={x1 + 2} x2={x2 - 2} y1={m.t - 24} y2={m.t - 24} stroke="rgba(0,0,0,0.2)" strokeWidth={1} />
+                {/* Season Title */}
+                <text x={cx} y={m.t - 14} textAnchor="middle" fontSize={10.5} fontWeight={600} fill={cssv("--dc-text")}>
+                  {band.name}
+                </text>
+                {/* Season Month Tag */}
+                <text x={cx} y={m.t - 4} textAnchor="middle" fontSize={9} fill={cssv("--dc-muted")}>
+                  {band.sub}
+                </text>
+              </g>
+            );
+          })}
+          {/* Final closing border divider */}
+          <line x1={x(n - 1) + colW / 2} x2={x(n - 1) + colW / 2} y1={m.t - 26} y2={H2 - m.b + 6} stroke="rgba(0,0,0,0.12)" strokeDasharray="3 3" />
+        </g>
+
+        {/* --- BOTTOM X-AXIS: Month & Date Markers --- */}
+        <g className="dc-month-axis">
+          <line x1={m.l} x2={W - m.r} y1={H2 - m.b} y2={H2 - m.b} stroke="rgba(0,0,0,0.2)" />
+          {months.map((mk) => {
+            const i = D.dates.indexOf(mk + "-01");
+            if (i < 0) return null;
+            const xi = x(i);
+            const mNum = +mk.slice(5);
+            return (
+              <g key={"btm-" + mk}>
+                <line x1={xi} x2={xi} y1={H2 - m.b} y2={H2 - m.b + 5} stroke="rgba(0,0,0,0.3)" />
+                <text x={xi + 3} y={H2 - m.b + 16} textAnchor="start" className="num" fontSize={10} fill={cssv("--dc-muted")}>
+                  {MON[mNum - 1].slice(0, 3)} {mk.slice(2, 4)}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+
+        {/* --- BOX PLOTS --- */}
+        <g className="dc-boxplots">
+          {dayBoxes.map((b, i) => {
+            const cx = x(i);
+            const yMin = yFn(b.min);
+            const yQ1 = yFn(b.q1);
+            const yMed = yFn(b.med);
+            const yQ3 = yFn(b.q3);
+            const yMax = yFn(b.max);
+
+            const tealStroke = "#208080";
+            const tealFill = "rgba(43, 150, 150, 0.16)";
+            const medianStroke = "#d9534f"; // Reddish-orange line matching the reference image
+
+            return (
+              <g key={"box-" + i}>
+                {/* Upper Whisker & Cap */}
+                <line x1={cx} x2={cx} y1={yMax} y2={yQ3} stroke={tealStroke} strokeWidth={1} />
+                <line x1={cx - capW / 2} x2={cx + capW / 2} y1={yMax} y2={yMax} stroke={tealStroke} strokeWidth={1} />
+
+                {/* Lower Whisker & Cap */}
+                <line x1={cx} x2={cx} y1={yMin} y2={yQ1} stroke={tealStroke} strokeWidth={1} />
+                <line x1={cx - capW / 2} x2={cx + capW / 2} y1={yMin} y2={yMin} stroke={tealStroke} strokeWidth={1} />
+
+                {/* IQR Box (Q3 to Q1) */}
+                <rect
+                  x={cx - boxW / 2}
+                  y={Math.min(yQ3, yQ1)}
+                  width={boxW}
+                  height={Math.max(1, Math.abs(yQ1 - yQ3))}
+                  fill={tealFill}
+                  stroke={tealStroke}
+                  strokeWidth={1}
+                />
+
+                {/* Median Line */}
+                <line x1={cx - boxW / 2} x2={cx + boxW / 2} y1={yMed} y2={yMed} stroke={medianStroke} strokeWidth={1.5} />
+              </g>
+            );
+          })}
+        </g>
+
+        {/* Hover Guideline */}
+        {hoverI != null && (
+          <line x1={x(hoverI)} x2={x(hoverI)} y1={m.t - 20} y2={H2 - m.b} stroke={cssv("--dc-text2")} strokeWidth={1} strokeDasharray="3 3" />
+        )}
       </svg>
     </>
   );
