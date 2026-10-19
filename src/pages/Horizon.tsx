@@ -54,9 +54,9 @@ export function HorizonPage() {
           crumb={TFS[ti].hz}
           title={<>Demand calendar <span className="font-normal text-muted-foreground">· {tfName(tf)}</span></>}
         >
-          <p className="pt-1 text-[13px] text-muted-foreground">
+          {/* <p className="pt-1 text-[13px] text-muted-foreground">
             UP declared-capacity vs demand across the whole year. Hover the charts or grid for values; click a day to open it full size, or a month to jump to its calendar.
-          </p>
+          </p> */}
         </PageHead>
         <div className="mt-5"><DemandCalendar section="year" /></div>
       </>
