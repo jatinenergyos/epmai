@@ -776,6 +776,7 @@ type YData = { cat: number[][]; dem: number[]; mn: number[]; mb: number[] };
 function YearView({ D, PI, modes, defaultMode }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode }) {
   const [openDay, setOpenDay] = useState<number | null>(null);
   const [openMonth, setOpenMonth] = useState<string | null>(null);
+  const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
   const monthRef = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<{ x: number; y: number; html: string } | null>(null);
 
@@ -819,6 +820,10 @@ function YearView({ D, PI, modes, defaultMode }: { D: Data; PI: PlantInfo[]; mod
     requestAnimationFrame(() => monthRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
 
+  const activeSeasonDef = useMemo(() => {
+    return SEASONS_DEF.find((s) => s.name === selectedSeason) || null;
+  }, [selectedSeason]);
+
   return (
     <div className="dc-root">
       <section className="dc-kpis">
@@ -829,13 +834,29 @@ function YearView({ D, PI, modes, defaultMode }: { D: Data; PI: PlantInfo[]; mod
         ))}
       </section>
 
-      <section className="dc-card">
-        <YearCharts D={D} Y={Y} months={months} onDay={setOpenDay} showTip={showTip} hideTip={hideTip} />
-      </section>
 
+      {/* 1. Grid plot heatmap chart BELOW */}
       <section className="dc-card">
-        <div className="dc-ygh"><b>Deficit blocks per date</b><span>15-min blocks (0–96) where demand met exceeded total supply · click a date to open it full size · click a month to open its calendar below.</span></div>
-        <div className="dc-cal-scroll"><YearGrid D={D} months={months} onDay={setOpenDay} onMonth={jumpToMonth} /></div>
+        <div className="dc-ygh">
+          <b>Deficit blocks per date</b>
+          <span>
+            15-min blocks (0–96) where demand met exceeded total supply · click a date to open it full size · click a month to open its calendar below.
+            {selectedSeason && (
+              <span style={{ marginLeft: 8, color: "var(--dc-text)", fontWeight: 600 }}>
+                (Filtered by {selectedSeason} — <button style={{ border: "none", background: "none", color: "var(--dc-defhi)", cursor: "pointer", textDecoration: "underline", padding: 0 }} onClick={() => setSelectedSeason(null)}>clear filter</button>)
+              </span>
+            )}
+          </span>
+        </div>
+        <div className="dc-cal-scroll">
+          <YearGrid
+            D={D}
+            months={months}
+            onDay={setOpenDay}
+            onMonth={jumpToMonth}
+            highlightMonths={activeSeasonDef?.months ?? null}
+          />
+        </div>
       </section>
 
       {openMonth && (
@@ -857,111 +878,25 @@ function YearView({ D, PI, modes, defaultMode }: { D: Data; PI: PlantInfo[]; mod
         />
       )}
       {tip && <div className="dc-tip" style={{ left: tip.x, top: tip.y }} dangerouslySetInnerHTML={{ __html: tip.html }} />}
+
+      {/* 2. Heatmap / Box Plot graph at the TOP */}
+      <section className="dc-card">
+        <YearCharts
+          D={D}
+          Y={Y}
+          months={months}
+          onDay={setOpenDay}
+          showTip={showTip}
+          hideTip={hideTip}
+          selectedSeason={selectedSeason}
+          onSelectSeason={(s) => setSelectedSeason((prev) => (prev === s ? null : s))}
+        />
+      </section>
+
+
     </div>
   );
 }
-
-// function YearCharts({ D, Y, months, onDay, showTip, hideTip }: {
-//   D: Data; Y: YData; months: string[]; onDay: (i: number) => void;
-//   showTip: (e: { clientX: number; clientY: number }, html: string) => void; hideTip: () => void;
-// }) {
-//   const n = D.dates.length;
-//   const [hoverI, setHoverI] = useState<number | null>(null);
-//   const stRef = useRef<SVGSVGElement>(null);
-//   const sdRef = useRef<SVGSVGElement>(null);
-//   const W = 1200, H1 = 300, H2 = 150, m = { l: 56, r: 12, t: 10, b: 22 };
-//   const x = (i: number) => m.l + (i * (W - m.l - m.r)) / (n - 1);
-//   const lineN = (arr: number[], yFn: (v: number) => number) => arr.map((v, i) => (i ? "L" : "M") + x(i) + "," + yFn(v)).join("");
-//   const areaN = (lo: number[], hi: number[], yFn: (v: number) => number) => {
-//     let d = "M" + x(0) + "," + yFn(hi[0]);
-//     for (let i = 1; i < n; i++) d += "L" + x(i) + "," + yFn(hi[i]);
-//     for (let i = n - 1; i >= 0; i--) d += "L" + x(i) + "," + yFn(lo[i]);
-//     return d + "Z";
-//   };
-
-//   const { layers, pT, nT } = useMemo(() => {
-//     const pT = new Array(n).fill(0), nT = new Array(n).fill(0);
-//     const layers: { k: number; pos: [number[], number[]]; neg: [number[], number[]] }[] = [];
-//     for (let k = 0; k < 8; k++) {
-//       const p0 = pT.slice(), n0 = nT.slice();
-//       for (let i = 0; i < n; i++) { const v = Y.cat[i][k]; if (v > 0) pT[i] += v; else nT[i] += v; }
-//       layers.push({ k, pos: [p0, pT.slice()], neg: [n0, nT.slice()] });
-//     }
-//     return { layers, pT, nT };
-//   }, [Y, n]);
-
-//   // axis frame builder
-//   const axis = (H: number, lo0: number, hi0: number) => {
-//     const step = niceStep(hi0 - lo0 || 1, 4);
-//     const hi = Math.ceil(hi0 / step) * step, lo = Math.floor(lo0 / step) * step;
-//     const yFn = (v: number) => m.t + ((hi - v) * (H - m.t - m.b)) / (hi - lo || 1);
-//     const els: React.ReactNode[] = [];
-//     for (let v = lo; v <= hi + 1e-6; v += step) {
-//       els.push(<line key={"g" + v} x1={m.l} x2={W - m.r} y1={yFn(v)} y2={yFn(v)} stroke={v === 0 ? cssv("--dc-muted") : cssv("--dc-grid")} />);
-//       els.push(<text key={"t" + v} x={m.l - 8} y={yFn(v) + 4} textAnchor="end" className="num" fontSize={11} fill={cssv("--dc-muted")}>{kf(v)}</text>);
-//     }
-//     months.forEach((mk) => {
-//       const i = D.dates.indexOf(mk + "-01"); if (i < 0) return;
-//       els.push(<line key={"ml" + mk} x1={x(i)} x2={x(i)} y1={m.t} y2={H - m.b} stroke={cssv("--dc-grid")} />);
-//       els.push(<text key={"mt" + mk} x={x(i) + 3} y={H - 6} textAnchor="start" className="num" fontSize={11} fill={cssv("--dc-muted")}>{MON[+mk.slice(5) - 1].slice(0, 3) + " " + mk.slice(2, 4)}</text>);
-//     });
-//     return { yFn, els };
-//   };
-
-//   const topAx = axis(H1, Math.min(0, ...nT), Math.max(...pT, ...Y.dem));
-//   const botAx = axis(H2, Math.min(0, ...Y.mn), Math.max(0, ...Y.mn));
-//   const bw = Math.max(1, (W - m.l - m.r) / n - 0.6);
-
-//   const yTipHtml = (i: number) => {
-//     const d = D.dates[i], cat = Y.cat[i], sup = cat.reduce((a, b) => a + b, 0);
-//     let h = `<h4>${+d.slice(8)} ${MON[+d.slice(5, 7) - 1].slice(0, 3)} ${d.slice(0, 4)} · daily energy, MU</h4>`;
-//     for (let k = 7; k >= 0; k--) h += `<div class="r"><span><i class="sw" style="background:${cssv(COLS[k])}"></i>${D.cats[k]}</span><b>${cat[k].toFixed(1)}</b></div>`;
-//     h += `<hr><div class="r"><span>Total supply</span><b>${sup.toFixed(1)}</b></div><div class="r"><span>Demand met</span><b>${Y.dem[i].toFixed(1)}</b></div>`;
-//     h += `<hr><div class="r"><span>Tightest block</span><b class="${Y.mn[i] < 0 ? "neg" : "pos"}">${Y.mn[i] >= 0 ? "+" : ""}${fmt(Y.mn[i])} · B${Y.mb[i] + 1}</b></div>`;
-//     return h;
-//   };
-//   const idxAt = (e: React.PointerEvent, ref: React.RefObject<SVGSVGElement | null>) => {
-//     const r = ref.current!.getBoundingClientRect();
-//     const px = ((e.clientX - r.left) / r.width) * W;
-//     const i = Math.round(((px - m.l) / (W - m.l - m.r)) * (n - 1));
-//     return i < 0 || i >= n ? null : i;
-//   };
-//   const onMove = (ref: React.RefObject<SVGSVGElement | null>) => (e: React.PointerEvent) => {
-//     const i = idxAt(e, ref); if (i == null) { setHoverI(null); hideTip(); return; }
-//     setHoverI(i); showTip(e, yTipHtml(i));
-//   };
-//   const onLeave = () => { setHoverI(null); hideTip(); };
-//   const onClick = (ref: React.RefObject<SVGSVGElement | null>) => (e: React.MouseEvent) => {
-//     const r = ref.current!.getBoundingClientRect();
-//     const px = ((e.clientX - r.left) / r.width) * W;
-//     const i = Math.round(((px - m.l) / (W - m.l - m.r)) * (n - 1));
-//     if (i >= 0 && i < n) onDay(i);
-//   };
-
-//   return (
-//     <>
-//       {/* <svg ref={stRef} viewBox={`0 0 ${W} ${H1}`} className="dc-year-svg" onPointerMove={onMove(stRef)} onPointerLeave={onLeave} onClick={onClick(stRef)} role="img" aria-label="Daily energy by category and demand over the year">
-//         <g>{topAx.els}</g>
-//         {layers.map(({ k, pos, neg }) => [pos, neg].map((q, qi) => (
-//           q[1].every((v, i) => v === q[0][i]) ? null :
-//           <path key={"l" + k + qi} d={areaN(q[0], q[1], topAx.yFn)} fill={cssv(COLS[k])} stroke={cssv("--dc-surface")} strokeWidth={0.5} />
-//         )))}
-//         <path d={lineN(Y.dem, topAx.yFn)} fill="none" stroke={cssv("--dc-surface")} strokeWidth={4} />
-//         <path d={lineN(Y.dem, topAx.yFn)} fill="none" stroke={cssv("--dc-text")} strokeWidth={1.6} />
-//         {hoverI != null && <line x1={x(hoverI)} x2={x(hoverI)} y1={m.t} y2={H1 - m.b} stroke={cssv("--dc-text2")} strokeDasharray="3 3" />}
-//       </svg> */}
-
-//       <div className="dc-note" style={{ margin: "8px 0 4px" }}><b style={{ color: cssv("--dc-text") }}>Daily surplus / deficit</b> · tightest block of each day, MW (below zero = deficit)</div>
-//       <svg ref={sdRef} viewBox={`0 0 ${W} ${H2}`} className="dc-year-svg" onPointerMove={onMove(sdRef)} onPointerLeave={onLeave} onClick={onClick(sdRef)} role="img" aria-label="Tightest block surplus or deficit for each day">
-//         <g>{botAx.els}</g>
-//         {Y.mn.map((v, i) => (
-//           <rect key={i} x={x(i) - bw / 2} y={Math.min(botAx.yFn(0), botAx.yFn(v))} width={bw} height={Math.abs(botAx.yFn(v) - botAx.yFn(0))} fill={v < 0 ? cssv("--dc-def") : cssv("--dc-sur")} fillOpacity={v < 0 ? 0.85 : 0.5} />
-//         ))}
-//         {hoverI != null && <line x1={x(hoverI)} x2={x(hoverI)} y1={m.t} y2={H2 - m.b} stroke={cssv("--dc-text2")} strokeDasharray="3 3" />}
-//       </svg>
-//     </>
-//   );
-// }
 
 /* ---------- Season configuration & Box-plot math ---------- */
 type BoxStats = { min: number; q1: number; med: number; q3: number; max: number };
@@ -984,7 +919,6 @@ function calcBoxStats(arr: number[]): BoxStats {
   };
 }
 
-// 1-based month matching
 const SEASONS_DEF: { name: string; label: string; months: number[] }[] = [
   { name: "Winter", label: "Jan – Feb", months: [1, 2] },
   { name: "Spring Onset", label: "Mar", months: [3] },
@@ -997,24 +931,28 @@ const SEASONS_DEF: { name: string; label: string; months: number[] }[] = [
   { name: "Late Winter", label: "Dec", months: [12] },
 ];
 
-function YearCharts({ D, Y, months, onDay, showTip, hideTip }: {
-  D: Data; Y: YData; months: string[]; onDay: (i: number) => void;
-  showTip: (e: { clientX: number; clientY: number }, html: string) => void; hideTip: () => void;
-}) {
+function YearCharts({ D, months, onDay, showTip, hideTip, selectedSeason, onSelectSeason, }
+  : {
+    D: Data;
+    Y: YData;
+    months: string[];
+    onDay: (i: number) => void;
+    showTip: (e: { clientX: number; clientY: number }, html: string) => void;
+    hideTip: () => void;
+    selectedSeason?: string | null;
+    onSelectSeason?: (seasonName: string) => void;
+  }) {
   const n = D.dates.length;
   const [hoverI, setHoverI] = useState<number | null>(null);
   const sdRef = useRef<SVGSVGElement>(null);
 
-  // Layout: Increased top and bottom margins for the dual X-axes
   const W = 1200, H2 = 280, m = { l: 56, r: 24, t: 38, b: 36 };
   const x = (i: number) => m.l + (i * (W - m.l - m.r)) / Math.max(1, n - 1);
 
-  // 1. Calculate box plot statistics per day across all 96 blocks
   const dayBoxes = useMemo(() => {
     return D.dates.map((_, i) => calcBoxStats(sur(D, i)));
   }, [D]);
 
-  // Overall Min and Max across all days for Y-scale
   const [globalMin, globalMax] = useMemo(() => {
     let min = 0, max = 0;
     dayBoxes.forEach((b) => {
@@ -1024,21 +962,19 @@ function YearCharts({ D, Y, months, onDay, showTip, hideTip }: {
     return [min, max || 1];
   }, [dayBoxes]);
 
-  // Y-axis grid & scale
   const step = niceStep(globalMax - globalMin || 1, 5);
   const ymax = Math.ceil(globalMax / step) * step;
   const ymin = Math.floor(globalMin / step) * step;
   const yFn = (v: number) => m.t + ((ymax - v) * (H2 - m.t - m.b)) / (ymax - ymin || 1);
 
-  // 2. Identify contiguous seasonal segments in the dataset
   const seasonBands = useMemo(() => {
     if (!n) return [];
-    const bands: { name: string; sub: string; startI: number; endI: number }[] = [];
+    const bands: { name: string; sub: string; startI: number; endI: number; months: number[] }[] = [];
     let curIdx = 0;
 
     const getSeason = (ds: string) => {
       const mo = +ds.slice(5, 7);
-      return SEASONS_DEF.find((s) => s.months.includes(mo)) || { name: "Other", label: "" };
+      return SEASONS_DEF.find((s) => s.months.includes(mo)) || { name: "Other", label: "", months: [] };
     };
 
     let curSeason = getSeason(D.dates[0]);
@@ -1046,16 +982,15 @@ function YearCharts({ D, Y, months, onDay, showTip, hideTip }: {
     for (let i = 1; i < n; i++) {
       const s = getSeason(D.dates[i]);
       if (s.name !== curSeason.name) {
-        bands.push({ name: curSeason.name, sub: curSeason.label, startI: curIdx, endI: i - 1 });
+        bands.push({ name: curSeason.name, sub: curSeason.label, startI: curIdx, endI: i - 1, months: curSeason.months });
         curSeason = s;
         curIdx = i;
       }
     }
-    bands.push({ name: curSeason.name, sub: curSeason.label, startI: curIdx, endI: n - 1 });
+    bands.push({ name: curSeason.name, sub: curSeason.label, startI: curIdx, endI: n - 1, months: curSeason.months });
     return bands;
   }, [D.dates, n]);
 
-  // Y-axis gridlines and labels
   const yGridEls: React.ReactNode[] = [];
   for (let v = ymin; v <= ymax + 1e-6; v += step) {
     const yPos = yFn(v);
@@ -1069,7 +1004,6 @@ function YearCharts({ D, Y, months, onDay, showTip, hideTip }: {
     );
   }
 
-  // Pointer & Click handlers
   const onMove = (e: React.PointerEvent) => {
     if (!sdRef.current) return;
     const r = sdRef.current.getBoundingClientRect();
@@ -1108,18 +1042,19 @@ function YearCharts({ D, Y, months, onDay, showTip, hideTip }: {
     if (i >= 0 && i < n) onDay(i);
   };
 
-  // Box plot dimensions
   const colW = (W - m.l - m.r) / Math.max(1, n);
   const boxW = Math.max(3, Math.min(10, colW * 0.75));
   const capW = boxW * 0.65;
 
   return (
     <>
-      <div className="dc-note" style={{ margin: "8px 0 4px", display: "flex", justifyContent: "space-between" }}>
+      <div className="dc-note" style={{ margin: "8px 0 4px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span>
           <b style={{ color: cssv("--dc-text") }}>Daily Demand Distribution</b> · Season wise distribution (Min, Q1, Median, Q3, Max)
         </span>
-        <span style={{ fontSize: 11, color: cssv("--dc-muted") }}>Click a bar to inspect the day</span>
+        <span style={{ fontSize: 11, color: cssv("--dc-muted") }}>
+          Click a season tag above to filter months · Click a bar to view day detail
+        </span>
       </div>
 
       <svg
@@ -1133,34 +1068,64 @@ function YearCharts({ D, Y, months, onDay, showTip, hideTip }: {
         aria-label="Box plot of daily surplus/deficit by season"
         style={{ width: "100%", height: "auto", overflow: "visible" }}
       >
-        {/* Background Y-Grid */}
         <g>{yGridEls}</g>
 
-        {/* --- TOP X-AXIS: Seasons --- */}
+        {/* --- TOP X-AXIS: Seasons (Interactive Tabs) --- */}
         <g className="dc-season-axis">
           {seasonBands.map((band, k) => {
             const x1 = x(band.startI) - colW / 2;
             const x2 = x(band.endI) + colW / 2;
             const cx = (x1 + x2) / 2;
+            const isSelected = selectedSeason === band.name;
 
             return (
-              <g key={"sb" + k}>
-                {/* Vertical Season Divider */}
+              <g
+                key={"sb" + k}
+                style={{ cursor: "pointer" }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectSeason?.(band.name);
+                }}
+              >
+                {/* Active Highlight Background behind the band */}
+                {isSelected && (
+                  <rect
+                    x={x1}
+                    y={m.t - 30}
+                    width={x2 - x1}
+                    height={H2 - m.b - (m.t - 30)}
+                    fill="rgba(32, 128, 128, 0.08)"
+                    stroke="rgba(32, 128, 128, 0.3)"
+                    strokeWidth={1}
+                  />
+                )}
+
                 <line x1={x1} x2={x1} y1={m.t - 26} y2={H2 - m.b + 6} stroke="rgba(0,0,0,0.12)" strokeDasharray="3 3" />
-                {/* Top border bracket */}
-                <line x1={x1 + 2} x2={x2 - 2} y1={m.t - 24} y2={m.t - 24} stroke="rgba(0,0,0,0.2)" strokeWidth={1} />
-                {/* Season Title */}
-                <text x={cx} y={m.t - 14} textAnchor="middle" fontSize={10.5} fontWeight={600} fill={cssv("--dc-text")}>
+                <line
+                  x1={x1 + 2}
+                  x2={x2 - 2}
+                  y1={m.t - 24}
+                  y2={m.t - 24}
+                  stroke={isSelected ? "#208080" : "rgba(0,0,0,0.2)"}
+                  strokeWidth={isSelected ? 2.5 : 1}
+                />
+
+                <text
+                  x={cx}
+                  y={m.t - 14}
+                  textAnchor="middle"
+                  fontSize={10.5}
+                  fontWeight={isSelected ? 700 : 600}
+                  fill={isSelected ? "#208080" : cssv("--dc-text")}
+                >
                   {band.name}
                 </text>
-                {/* Season Month Tag */}
-                <text x={cx} y={m.t - 4} textAnchor="middle" fontSize={9} fill={cssv("--dc-muted")}>
+                <text x={cx} y={m.t - 4} textAnchor="middle" fontSize={9} fill={isSelected ? "#208080" : cssv("--dc-muted")}>
                   {band.sub}
                 </text>
               </g>
             );
           })}
-          {/* Final closing border divider */}
           <line x1={x(n - 1) + colW / 2} x2={x(n - 1) + colW / 2} y1={m.t - 26} y2={H2 - m.b + 6} stroke="rgba(0,0,0,0.12)" strokeDasharray="3 3" />
         </g>
 
@@ -1193,21 +1158,24 @@ function YearCharts({ D, Y, months, onDay, showTip, hideTip }: {
             const yQ3 = yFn(b.q3);
             const yMax = yFn(b.max);
 
-            const tealStroke = "#208080";
-            const tealFill = "rgba(43, 150, 150, 0.16)";
-            const medianStroke = "#d9534f"; // Reddish-orange line matching the reference image
+            const dMo = +D.dates[i].slice(5, 7);
+            const inSelectedSeason = selectedSeason
+              ? SEASONS_DEF.find((s) => s.name === selectedSeason)?.months.includes(dMo)
+              : true;
+
+            const opacity = inSelectedSeason ? 1 : 0.2;
+            const tealStroke = inSelectedSeason ? "#208080" : "#888";
+            const tealFill = inSelectedSeason ? "rgba(43, 150, 150, 0.16)" : "rgba(100, 100, 100, 0.05)";
+            const medianStroke = inSelectedSeason ? "#d9534f" : "#aaa";
 
             return (
-              <g key={"box-" + i}>
-                {/* Upper Whisker & Cap */}
+              <g key={"box-" + i} style={{ opacity }}>
                 <line x1={cx} x2={cx} y1={yMax} y2={yQ3} stroke={tealStroke} strokeWidth={1} />
                 <line x1={cx - capW / 2} x2={cx + capW / 2} y1={yMax} y2={yMax} stroke={tealStroke} strokeWidth={1} />
 
-                {/* Lower Whisker & Cap */}
                 <line x1={cx} x2={cx} y1={yMin} y2={yQ1} stroke={tealStroke} strokeWidth={1} />
                 <line x1={cx - capW / 2} x2={cx + capW / 2} y1={yMin} y2={yMin} stroke={tealStroke} strokeWidth={1} />
 
-                {/* IQR Box (Q3 to Q1) */}
                 <rect
                   x={cx - boxW / 2}
                   y={Math.min(yQ3, yQ1)}
@@ -1218,14 +1186,12 @@ function YearCharts({ D, Y, months, onDay, showTip, hideTip }: {
                   strokeWidth={1}
                 />
 
-                {/* Median Line */}
                 <line x1={cx - boxW / 2} x2={cx + boxW / 2} y1={yMed} y2={yMed} stroke={medianStroke} strokeWidth={1.5} />
               </g>
             );
           })}
         </g>
 
-        {/* Hover Guideline */}
         {hoverI != null && (
           <line x1={x(hoverI)} x2={x(hoverI)} y1={m.t - 20} y2={H2 - m.b} stroke={cssv("--dc-text2")} strokeWidth={1} strokeDasharray="3 3" />
         )}
@@ -1234,39 +1200,213 @@ function YearCharts({ D, Y, months, onDay, showTip, hideTip }: {
   );
 }
 
-function YearGrid({ D, months, onDay, onMonth }: {
-  D: Data; months: string[]; onDay: (i: number) => void; onMonth: (mk: string) => void;
+/* ---------- YearGrid with Season Highlighting ---------- */
+// function YearGrid({
+//   D,
+//   months,
+//   onDay,
+//   onMonth,
+//   highlightMonths,
+// }: {
+//   D: Data;
+//   months: string[];
+//   onDay: (i: number) => void;
+//   onMonth: (mk: string) => void;
+//   highlightMonths?: number[] | null;
+// }) {
+//   const cc = (c: number) => {
+//     if (!c) return undefined;
+//     const t = Math.min(1, Math.sqrt(c / 64));
+//     return {
+//       background: `color-mix(in srgb, var(--dc-defhi) ${(t * 100).toFixed(1)}%, var(--dc-mid))`,
+//       color: t > 0.55 ? "#fff" : cssv("--dc-text"),
+//     };
+//   };
+
+//   return (
+//     <table className="dc-yg">
+//       <colgroup>
+//         <col className="mc" />
+//         {Array.from({ length: 31 }, (_, k) => <col key={k} />)}
+//         <col className="tc" />
+//       </colgroup>
+//       <thead>
+//         <tr>
+//           <th />
+//           <>{Array.from({ length: 31 }, (_, k) => <th key={k}>{k + 1}</th>)}</>
+//           <th style={{ textAlign: "right", paddingRight: 4 }}>Total</th>
+//         </tr>
+//       </thead>
+//       <tbody>
+//         {months.map((mk) => {
+//           const y = +mk.slice(0, 4), mo = +mk.slice(5) - 1, nd = new Date(y, mo + 1, 0).getDate();
+//           const monthNum = mo + 1;
+//           const isHighlighted = highlightMonths ? highlightMonths.includes(monthNum) : true;
+//           const rowStyle: React.CSSProperties = {
+//             opacity: isHighlighted ? 1 : 0.28,
+//             transition: "opacity 0.2s ease, background 0.2s ease",
+//             ...(highlightMonths && isHighlighted
+//               ? { background: "rgba(32, 128, 128, 0.08)", outline: "1px solid rgba(32, 128, 128, 0.25)" }
+//               : {}),
+//           };
+
+//           let tot = 0;
+//           const cells: React.ReactNode[] = [];
+//           for (let d = 1; d <= 31; d++) {
+//             if (d > nd) { cells.push(<td key={d} className="na" />); continue; }
+//             const ds = `${mk}-${String(d).padStart(2, "0")}`, i = D.dates.indexOf(ds);
+//             if (i < 0) { cells.push(<td key={d} className="na" />); continue; }
+//             const c = sur(D, i).filter((v) => v < 0).length; tot += c;
+//             cells.push(
+//               <td
+//                 key={d}
+//                 className="d"
+//                 style={cc(c)}
+//                 title={`${d} ${MON[mo]} ${y}: ${c} deficit blocks (${c / 4} h)`}
+//                 onClick={() => onDay(i)}
+//               >
+//                 {c || ""}
+//               </td>
+//             );
+//           }
+
+//           return (
+//             <tr key={mk} style={rowStyle}>
+//               <th
+//                 scope="row"
+//                 onClick={() => onMonth(mk)}
+//                 title={`Open ${MON[mo]} ${y} calendar`}
+//                 style={highlightMonths && isHighlighted ? { color: "#208080", fontWeight: 700 } : undefined}
+//               >
+//                 {MON[mo].slice(0, 3)} {mk.slice(2, 4)}
+//               </th>
+//               {cells}
+//               <td className="tot">{tot}</td>
+//             </tr>
+//           );
+//         })}
+//       </tbody>
+//     </table>
+//   );
+// }
+
+/* ---------- YearGrid with Season Highlighting & Colored Totals ---------- */
+function YearGrid({
+  D,
+  months,
+  onDay,
+  onMonth,
+  highlightMonths,
+}: {
+  D: Data;
+  months: string[];
+  onDay: (i: number) => void;
+  onMonth: (mk: string) => void;
+  highlightMonths?: number[] | null;
 }) {
+  // Day-level cell color (scaled up to ~64 blocks/day)
   const cc = (c: number) => {
     if (!c) return undefined;
     const t = Math.min(1, Math.sqrt(c / 64));
-    return { background: `color-mix(in srgb, var(--dc-defhi) ${(t * 100).toFixed(1)}%, var(--dc-mid))`, color: t > 0.55 ? "#fff" : cssv("--dc-text") };
+    return {
+      background: `color-mix(in srgb, var(--dc-defhi) ${(t * 100).toFixed(1)}%, var(--dc-mid))`,
+      color: t > 0.55 ? "#fff" : cssv("--dc-text"),
+    };
   };
+
+  // Pre-calculate month totals across all months to normalize the month-total color scale
+  const monthTotals = useMemo(() => {
+    return months.map((mk) => {
+      const y = +mk.slice(0, 4), mo = +mk.slice(5) - 1, nd = new Date(y, mo + 1, 0).getDate();
+      let tot = 0;
+      for (let d = 1; d <= nd; d++) {
+        const ds = `${mk}-${String(d).padStart(2, "0")}`;
+        const i = D.dates.indexOf(ds);
+        if (i >= 0) {
+          tot += sur(D, i).filter((v) => v < 0).length;
+        }
+      }
+      return tot;
+    });
+  }, [D, months]);
+
+  const maxMonthTotal = useMemo(() => Math.max(1, ...monthTotals), [monthTotals]);
+
+  // Total column color mapper (scaled dynamically to maximum monthly deficit)
+  const totalCc = (tot: number) => {
+    if (!tot) return undefined;
+    const t = Math.min(1, Math.sqrt(tot / maxMonthTotal));
+    return {
+      background: `color-mix(in srgb, var(--dc-defhi) ${(t * 100).toFixed(1)}%, var(--dc-mid))`,
+      color: t > 0.55 ? "#fff" : cssv("--dc-text"),
+    };
+  };
+
   return (
     <table className="dc-yg">
-      <colgroup><col className="mc" />{Array.from({ length: 31 }, (_, k) => <col key={k} />)}<col className="tc" /></colgroup>
+      <colgroup>
+        <col className="mc" />
+        {Array.from({ length: 31 }, (_, k) => <col key={k} />)}
+        <col className="tc" />
+      </colgroup>
       <thead>
-        <tr><th /><>{Array.from({ length: 31 }, (_, k) => <th key={k}>{k + 1}</th>)}</><th style={{ textAlign: "right", paddingRight: 4 }}>Total</th></tr>
+        <tr>
+          <th />
+          <>{Array.from({ length: 31 }, (_, k) => <th key={k}>{k + 1}</th>)}</>
+          <th style={{ textAlign: "right", paddingRight: 4 }}>Total</th>
+        </tr>
       </thead>
       <tbody>
-        {months.map((mk) => {
+        {months.map((mk, mIdx) => {
           const y = +mk.slice(0, 4), mo = +mk.slice(5) - 1, nd = new Date(y, mo + 1, 0).getDate();
-          let tot = 0;
+          const monthNum = mo + 1;
+          const isHighlighted = highlightMonths ? highlightMonths.includes(monthNum) : true;
+          const rowStyle: React.CSSProperties = {
+            opacity: isHighlighted ? 1 : 0.28,
+            transition: "opacity 0.2s ease, background 0.2s ease",
+            ...(highlightMonths && isHighlighted
+              ? { background: "rgba(32, 128, 128, 0.08)", outline: "1px solid rgba(32, 128, 128, 0.25)" }
+              : {}),
+          };
+
+          const tot = monthTotals[mIdx];
           const cells: React.ReactNode[] = [];
           for (let d = 1; d <= 31; d++) {
             if (d > nd) { cells.push(<td key={d} className="na" />); continue; }
             const ds = `${mk}-${String(d).padStart(2, "0")}`, i = D.dates.indexOf(ds);
             if (i < 0) { cells.push(<td key={d} className="na" />); continue; }
-            const c = sur(D, i).filter((v) => v < 0).length; tot += c;
+            const c = sur(D, i).filter((v) => v < 0).length;
             cells.push(
-              <td key={d} className="d" style={cc(c)} title={`${d} ${MON[mo]} ${y}: ${c} deficit blocks (${c / 4} h)`} onClick={() => onDay(i)}>{c || ""}</td>
+              <td
+                key={d}
+                className="d"
+                style={cc(c)}
+                title={`${d} ${MON[mo]} ${y}: ${c} deficit blocks (${c / 4} h)`}
+                onClick={() => onDay(i)}
+              >
+                {c || ""}
+              </td>
             );
           }
+
           return (
-            <tr key={mk}>
-              <th scope="row" onClick={() => onMonth(mk)} title={`Open ${MON[mo]} ${y} calendar`}>{MON[mo].slice(0, 3)} {mk.slice(2, 4)}</th>
+            <tr key={mk} style={rowStyle}>
+              <th
+                scope="row"
+                onClick={() => onMonth(mk)}
+                title={`Open ${MON[mo]} ${y} calendar`}
+                style={highlightMonths && isHighlighted ? { color: "#208080", fontWeight: 700 } : undefined}
+              >
+                {MON[mo].slice(0, 3)} {mk.slice(2, 4)}
+              </th>
               {cells}
-              <td className="tot">{tot}</td>
+              <td
+                className="tot"
+                style={totalCc(tot)}
+                title={`${MON[mo]} ${y}: ${tot} total deficit blocks (${(tot / 4).toFixed(1)} h)`}
+              >
+                {tot}
+              </td>
             </tr>
           );
         })}
