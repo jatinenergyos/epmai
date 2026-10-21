@@ -4,7 +4,7 @@
 // `/demand/box` (box) views; data comes from epm-ai's own DC dataset, and the
 // series shown depends on the Planning-horizon module (demand / supply / opt).
 
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react"
 import { Chart } from "@highcharts/react"
 import "@highcharts/react/series/BoxPlot" // registers the boxplot series type
 import { MONTHS, monthName } from "./constants"
@@ -56,7 +56,7 @@ export function hasLoadGrid(mod: string): boolean {
   return mod in LG_SETS
 }
 
-export default function LoadGrid({ kind, mod, groupBy = null }: { kind: Kind; mod: string; groupBy?: GroupBy | null }) {
+export default function LoadGrid({ kind, mod, groupBy = null, leftControls }: { kind: Kind; mod: string; groupBy?: GroupBy | null; leftControls?: ReactNode }) {
   const { D, err } = useDcData()
   const cfg = setFor(mod)
   const ds = useMemo<GridDataset | null>(() => (D ? buildDataset(D, cfg.series) : null), [D, cfg.series])
@@ -70,7 +70,7 @@ export default function LoadGrid({ kind, mod, groupBy = null }: { kind: Kind; mo
   return (
     <CompareProvider>
       <div className="lg-root">
-        <Grid ds={ds} kind={kind} cfg={cfg} groups={groups} />
+        <Grid ds={ds} kind={kind} cfg={cfg} groups={groups} leftControls={leftControls} />
         <CompareTray />
         <ChartViewer />
       </div>
@@ -78,7 +78,7 @@ export default function LoadGrid({ kind, mod, groupBy = null }: { kind: Kind; mo
   )
 }
 
-function Grid({ ds, kind, cfg, groups }: { ds: GridDataset; kind: Kind; cfg: ReturnType<typeof setFor>; groups: ReturnType<typeof groupsFor> | null }) {
+function Grid({ ds, kind, cfg, groups, leftControls }: { ds: GridDataset; kind: Kind; cfg: ReturnType<typeof setFor>; groups: ReturnType<typeof groupsFor> | null; leftControls?: ReactNode }) {
   const { openCompare } = useCompare()
   const t = useChartTheme()
   const [size, setSize] = useState<Size>("M")
@@ -161,9 +161,11 @@ function Grid({ ds, kind, cfg, groups }: { ds: GridDataset; kind: Kind; cfg: Ret
   return (
     <div className="lg-view">
       <div className="lg-view-head">
-        <p className="lg-view-sub">
-          one mini-chart per {unit} · hover a cell to <b>⤢ expand</b> or <b>+ compare</b>
-        </p>
+        {leftControls ? <div className="lg-left-controls">{leftControls}</div> : (
+          <p className="lg-view-sub">
+            one mini-chart per {unit} · hover a cell to <b>⤢ expand</b> or <b>+ compare</b>
+          </p>
+        )}
         <div className="lg-controls">
           <Segmented
             value={period}
