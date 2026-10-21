@@ -30,6 +30,9 @@ export const LG_SETS: Record<string, { series: Series; label: string; sub: strin
   demand: { series: "dem", label: "Demand", sub: "demand met per block, MW" },
   supply: { series: "av", label: "Declared capacity", sub: "available DC supply per block, MW" },
   opt: { series: "sur", label: "Surplus / deficit", sub: "supply − demand per block, MW" },
+  // Market Intelligence reuses Supply's declared-capacity (Total supply DC) series —
+  // same grid, same data; the Market/Exchange picker is a placeholder (see Horizon.tsx).
+  mi: { series: "av", label: "Declared capacity", sub: "available DC supply per block, MW" },
 }
 
 const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]

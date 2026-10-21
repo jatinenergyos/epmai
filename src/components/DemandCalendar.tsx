@@ -9,7 +9,7 @@
  *   sur   — surplus / deficit per block (calendar grid)
  *   mheat — blockwise surplus / deficit heatmap for the whole month
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { groupsFor, splitByGroup, type Group, type GroupBy } from "@/features/loadgrid/breakdown";
 import { GraphTypeSelect } from "@/features/loadgrid/GraphTypeSelect";
@@ -57,6 +57,9 @@ export const CAL_SETS: Record<string, { modes: Mode[]; def: Mode; label: string 
   demand: { modes: ["dem"], def: "dem", label: "Demand calendar" },
   supply: { modes: ["stack", "src"], def: "stack", label: "Supply calendar" },
   opt: { modes: ["sur", "mheat"], def: "sur", label: "Surplus / deficit calendar" },
+  // Market Intelligence's month-ahead reuses the Supply "Total supply (DC)" series —
+  // the Market/Exchange pickers (see `extraControls`) replace the plant/category select.
+  mi: { modes: ["src"], def: "src", label: "Market calendar" },
 };
 
 function niceStep(r: number, n: number) {
@@ -106,7 +109,7 @@ const fillToZero = (a: number[], g: Geom) => {
 };
 
 /* ---------- the big component ---------- */
-export function DemandCalendar({ section = "month", modes = ALL_MODES, defaultMode = "stack", monthBarPortalRef, supplyFocus = false }: { section?: "month" | "year"; modes?: Mode[]; defaultMode?: Mode; monthBarPortalRef?: RefObject<HTMLElement | null>; supplyFocus?: boolean }) {
+export function DemandCalendar({ section = "month", modes = ALL_MODES, defaultMode = "stack", monthBarPortalRef, supplyFocus = false, hideKpis = false, hideSrcSelect = false, extraControls }: { section?: "month" | "year"; modes?: Mode[]; defaultMode?: Mode; monthBarPortalRef?: RefObject<HTMLElement | null>; supplyFocus?: boolean; hideKpis?: boolean; hideSrcSelect?: boolean; extraControls?: ReactNode }) {
   const [D, setD] = useState<Data | null>(null);
   const [PI, setPI] = useState<PlantInfo[] | null>(null);
   const [err, setErr] = useState(false);
@@ -125,11 +128,11 @@ export function DemandCalendar({ section = "month", modes = ALL_MODES, defaultMo
   if (err) return <p className="dc-note">Could not load demand-calendar data. Reload the page to try again.</p>;
   if (!D || !PI) return <p className="dc-note">Loading demand calendar…</p>;
   return section === "year"
-    ? <YearView D={D} PI={PI} modes={modes} defaultMode={defaultMode} supplyFocus={supplyFocus} />
-    : <Calendar D={D} PI={PI} modes={modes} defaultMode={defaultMode} monthBarPortalRef={monthBarPortalRef} />;
+    ? <YearView D={D} PI={PI} modes={modes} defaultMode={defaultMode} supplyFocus={supplyFocus} hideKpis={hideKpis} extraControls={extraControls} />
+    : <Calendar D={D} PI={PI} modes={modes} defaultMode={defaultMode} monthBarPortalRef={monthBarPortalRef} hideKpis={hideKpis} hideSrcSelect={hideSrcSelect} extraControls={extraControls} />;
 }
 
-function Calendar({ D, PI, modes, defaultMode, initialMonthKey, monthBarPortalRef }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode; initialMonthKey?: string; monthBarPortalRef?: RefObject<HTMLElement | null> }) {
+function Calendar({ D, PI, modes, defaultMode, initialMonthKey, monthBarPortalRef, hideKpis = false, hideSrcSelect = false, extraControls }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode; initialMonthKey?: string; monthBarPortalRef?: RefObject<HTMLElement | null>; hideKpis?: boolean; hideSrcSelect?: boolean; extraControls?: ReactNode }) {
   const months = useMemo(() => [...new Set(D.dates.map((d) => d.slice(0, 7)))], [D]);
 
   const [m, setM] = useState(() => {
@@ -254,9 +257,10 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey, monthBarPortalRe
         monthBarSlot={monthBarSlot}
         isSupplyCal={isSupplyCal} showGraphType={showGraphType} setShowGraphType={setShowGraphType}
         groupBy={groupBy} setGroupBy={setGroupBy}
+        hideSrcSelect={hideSrcSelect} extraControls={extraControls}
       />
 
-      <Kpis D={D} idx={idx} mode={mode} isSingle={isSingle} srcSer={srcSer} series={series} off={off} />
+      {!hideKpis && <Kpis D={D} idx={idx} mode={mode} isSingle={isSingle} srcSer={srcSer} series={series} off={off} />}
 
       {mode === "mheat" ? (
         <Heatmap D={D} idx={idx} mk={mk} picked={openDay} setPicked={setOpenDay} showTip={showTip} hideTip={hideTip} />
@@ -337,13 +341,14 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey, monthBarPortalRe
 }
 
 /* ---------- controls ---------- */
-function Controls({ months, m, setM, monthLabel, mode, setMode, view, setView, src, setSrc, D, PI, modes, monthBarSlot, isSupplyCal, showGraphType, setShowGraphType, groupBy, setGroupBy }: {
+function Controls({ months, m, setM, monthLabel, mode, setMode, view, setView, src, setSrc, D, PI, modes, monthBarSlot, isSupplyCal, showGraphType, setShowGraphType, groupBy, setGroupBy, hideSrcSelect = false, extraControls }: {
   months: string[]; m: number; setM: (n: number) => void; monthLabel: string;
   mode: Mode; setMode: (x: Mode) => void; view: View; setView: (v: View) => void;
   src: string; setSrc: (s: string) => void; D: Data; PI: PlantInfo[]; modes: Mode[];
   monthBarSlot: HTMLElement | null;
   isSupplyCal: boolean; showGraphType: boolean; setShowGraphType: (b: boolean) => void;
   groupBy: GroupBy; setGroupBy: (g: GroupBy) => void;
+  hideSrcSelect?: boolean; extraControls?: ReactNode;
 }) {
   const srcOptions = useMemo(() => {
     const types = [...new Set(PI.map((p) => p.t))];
@@ -360,11 +365,9 @@ function Controls({ months, m, setM, monthLabel, mode, setMode, view, setView, s
     </div>
   );
 
-  return (
-    <div className="dc-controls">
-      {/* Given a header slot, the month bar renders there instead of here (see
-          `monthBarPortalRef` on <DemandCalendar>) — this spot stays empty. */}
-      {monthBarSlot ? createPortal(monthBar, monthBarSlot) : monthBar}
+  const restControls = (
+    <>
+      {extraControls}
 
       {modes.length > 1 && (
         <div className="dc-seg" role="group" aria-label="Chart type">
@@ -379,7 +382,7 @@ function Controls({ months, m, setM, monthLabel, mode, setMode, view, setView, s
 
       {showGraphType && <GraphTypeSelect value={groupBy} onChange={setGroupBy} className="dc-srcsel" showLabel={false} />}
 
-      {!showGraphType && mode === "src" && (
+      {!showGraphType && !hideSrcSelect && mode === "src" && (
         <select className="dc-srcsel" aria-label="Plant or category" value={src} onChange={(e) => setSrc(e.target.value)}>
           <option value="tot">Total supply (DC)</option>
           <optgroup label="Categories">
@@ -401,6 +404,21 @@ function Controls({ months, m, setM, monthLabel, mode, setMode, view, setView, s
       )}
 
       <span className="dc-note" style={{ margin: 0 }}>{monthLabel}</span>
+    </>
+  );
+
+  // Given a header slot, the whole controls row renders there instead of in its usual
+  // spot below the title — one row instead of two, so more chart rows fit on screen
+  // (see `monthBarPortalRef` on <DemandCalendar>). The mode/view toggles stay leftmost,
+  // flush with the day grid below; the month bar sits at the opposite end.
+  if (monthBarSlot) {
+    return createPortal(<div className="dc-controls">{restControls}<div className="ml-auto">{monthBar}</div></div>, monthBarSlot);
+  }
+
+  return (
+    <div className="dc-controls">
+      {monthBar}
+      {restControls}
     </div>
   );
 }
@@ -1025,7 +1043,7 @@ function BigDayChart({ D, i, mode, off, demOn, single, srcInfo, series, names, v
 /* ---------- year view (planning-horizon "Year ahead") ---------- */
 type YData = { cat: number[][]; dem: number[]; mn: number[]; mb: number[] };
 
-function YearView({ D, PI, modes, defaultMode, supplyFocus = false }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode; supplyFocus?: boolean }) {
+function YearView({ D, PI, modes, defaultMode, supplyFocus = false, hideKpis = false, extraControls }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode; supplyFocus?: boolean; hideKpis?: boolean; extraControls?: ReactNode }) {
   const [openDay, setOpenDay] = useState<number | null>(null);
   const [openMonth, setOpenMonth] = useState<string | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
@@ -1080,13 +1098,17 @@ function YearView({ D, PI, modes, defaultMode, supplyFocus = false }: { D: Data;
 
   return (
     <div className="dc-root">
-      <section className="dc-kpis">
-        {kpis.map((k) => (
-          <div className="dc-kpi" key={k[0]}>
-            <div className="l">{k[0]}</div><div className={"v " + k[3]}>{k[1]}</div><div className="n">{k[2]}</div>
-          </div>
-        ))}
-      </section>
+      {extraControls && <div className="dc-controls">{extraControls}</div>}
+
+      {!hideKpis && (
+        <section className="dc-kpis">
+          {kpis.map((k) => (
+            <div className="dc-kpi" key={k[0]}>
+              <div className="l">{k[0]}</div><div className={"v " + k[3]}>{k[1]}</div><div className="n">{k[2]}</div>
+            </div>
+          ))}
+        </section>
+      )}
 
 
       {/* 1. Grid plot heatmap chart BELOW */}

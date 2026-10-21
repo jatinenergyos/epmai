@@ -19,7 +19,7 @@ import { useDcData } from "@/features/loadgrid/data";
 import "./DemandCalendar.css";
 
 const BLOCKS = 96;
-const WINDOW_START = "2019-04-01";
+export const WINDOW_START = "2019-04-01";
 
 const mw = (v: number) => Math.round(v).toLocaleString("en-IN");
 
