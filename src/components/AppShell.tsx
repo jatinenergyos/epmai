@@ -46,9 +46,12 @@ export function AppShell() {
   // The Planning-horizon page at Month ahead is the UP DC demand calendar, which wants the full window.
   const planTf = (location.search as { h?: string }).h ?? readLocalTf("epm.h");
   const planMod = (location.search as { mod?: string }).mod ?? readLocalTf("epm.mod") ?? "overview";
-  const monthCalMod = planMod === "overview" || planMod === "demand" || planMod === "supply" || planMod === "opt";
+  const monthCalMod = planMod === "overview" || planMod === "demand" || planMod === "supply" || planMod === "opt" || planMod === "mi";
+  // Week ahead for Supply/Demand renders the same small-multiples day grid as Month ahead,
+  // so it claims the full window too.
+  const weekGridMod = planMod === "supply" || planMod === "demand" || planMod === "mi";
   const isHorizonCalendar = pathname === "/horizon" &&
-    ((planTf === "mo" && monthCalMod) || (planTf === "yr" && (planMod === "overview" || planMod === "demand")));
+    ((planTf === "mo" && monthCalMod) || (planTf === "yr" && (planMod === "overview" || planMod === "demand" || planMod === "supply" || planMod === "mi")) || (planTf === "wk" && weekGridMod));
   // The Long-term horizon lays out the full-screen load-profile / box-plot grids and the wide
   // analytics view, so it claims the full window too.
   const isHorizonLongTerm = pathname === "/horizon" && planTf === "lt";

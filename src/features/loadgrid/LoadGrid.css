@@ -40,7 +40,7 @@
   gap: 12px 20px; flex-wrap: wrap; margin-bottom: 8px;
 }
 .lg-view-sub { margin: 0; color: var(--lg-muted); font-size: 12.5px; }
-.lg-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.lg-controls, .lg-left-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
 /* ---------------- Season key (explanation) ---------------- */
 .lg-season-key {
