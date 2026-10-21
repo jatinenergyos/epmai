@@ -13,6 +13,9 @@
   --dc-muted: hsl(var(--muted-foreground) / 0.72);
   --dc-accent: hsl(var(--primary));
   --dc-mono: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  /* weekend day cells (Plant/category + Supply stack) and the remark column */
+  --dc-weekend-bg: hsl(0 72% 92% / 0.6);
+  --dc-remark-bg: hsl(var(--primary) / 0.1);
   /* stacked series */
   --dc-s1: #9ec5f4; --dc-s2: #f7b89c; --dc-s3: #94dcc1; --dc-s4: #f6d37f;
   --dc-s5: #f4bdd2; --dc-s6: #9fd29f; --dc-s7: #bdb5ec; --dc-s8: #f3a9a8;
@@ -33,6 +36,7 @@
     --dc-good: #6da7ec; --dc-bad: #ef6b6b;
     --dc-sur: #3987e5; --dc-def: #e66767; --dc-mid: #383835;
     --dc-surhi: #86b6ef; --dc-defhi: #f19a9a;
+    --dc-weekend-bg: hsl(0 55% 32% / 0.35);
   }
 }
 :root[data-theme="dark"] .dc-root {
@@ -41,6 +45,7 @@
   --dc-good: #6da7ec; --dc-bad: #ef6b6b;
   --dc-sur: #3987e5; --dc-def: #e66767; --dc-mid: #383835;
   --dc-surhi: #86b6ef; --dc-defhi: #f19a9a;
+  --dc-weekend-bg: hsl(0 55% 32% / 0.35);
 }
 
 .dc-root .num,
@@ -95,11 +100,9 @@
 .dc-cell:hover { border-color: var(--dc-muted); }
 .dc-cell[aria-pressed="true"] { border-color: var(--dc-text); box-shadow: 0 0 0 1px var(--dc-text); }
 .dc-cell.empty { background: transparent; border: 1px dashed var(--dc-line); cursor: default; }
-/* Overflow days of a 6-week month wrap into row 1; show their label at the BOTTOM of
-   the cell (chart on top) so they read as trailing days rather than the month's start. */
-.dc-cell.wrapped { flex-direction: column-reverse; }
-.dc-cell.wrapped .top { margin-top: 2px; }
-.dc-cell.wrapped svg { margin-top: 0; }
+/* Saturday / Sunday tint (Plant/category + Supply stack views only). */
+.dc-cell.dc-weekend { background: var(--dc-weekend-bg); }
+.dc-cell.empty.dc-weekend { background: var(--dc-weekend-bg); border-style: dashed; }
 .dc-cell .top { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; font-size: 11px; white-space: nowrap; overflow: hidden; }
 .dc-cell .dn { font-weight: 700; font-size: 12px; }
 .dc-cell .dn small { font-weight: 500; color: var(--dc-muted); font-size: 10px; margin-left: 3px; }
@@ -109,6 +112,16 @@
 .dc-chip.nt { color: var(--dc-text2); }
 .dc-cell svg { display: block; width: 100%; height: auto; margin-top: 1px; overflow: visible; }
 .dc-note { color: var(--dc-muted); font-size: 11px; margin: 6px 0 0; }
+
+/* Remark column: one summary cell per calendar row (the week's average + a
+   day-by-day bar graph), on a background distinct from both plain and weekend days. */
+.dc-cell.dc-remark {
+  cursor: default; align-items: center; justify-content: center; text-align: center;
+  background: var(--dc-remark-bg); border-color: hsl(var(--primary) / 0.3);
+}
+.dc-remark-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dc-muted); }
+.dc-remark-value { font-family: var(--dc-mono); font-size: 13px; font-weight: 600; margin-top: 2px; }
+.dc-cell.dc-remark .dc-remark-bars { display: block; width: 100%; height: 26px; margin-top: 4px; overflow: visible; }
 
 /* heatmap */
 .dc-hmtop { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; font-size: 12px; color: var(--dc-text2); }

@@ -9,7 +9,10 @@
  *   sur   — surplus / deficit per block (calendar grid)
  *   mheat — blockwise surplus / deficit heatmap for the whole month
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
+import { groupsFor, splitByGroup, type Group, type GroupBy } from "@/features/loadgrid/breakdown";
+import { GraphTypeSelect } from "@/features/loadgrid/GraphTypeSelect";
 import "./DemandCalendar.css";
 
 /* ---------- data shapes ---------- */
@@ -103,7 +106,7 @@ const fillToZero = (a: number[], g: Geom) => {
 };
 
 /* ---------- the big component ---------- */
-export function DemandCalendar({ section = "month", modes = ALL_MODES, defaultMode = "stack" }: { section?: "month" | "year"; modes?: Mode[]; defaultMode?: Mode }) {
+export function DemandCalendar({ section = "month", modes = ALL_MODES, defaultMode = "stack", monthBarPortalRef, supplyFocus = false }: { section?: "month" | "year"; modes?: Mode[]; defaultMode?: Mode; monthBarPortalRef?: RefObject<HTMLElement | null>; supplyFocus?: boolean }) {
   const [D, setD] = useState<Data | null>(null);
   const [PI, setPI] = useState<PlantInfo[] | null>(null);
   const [err, setErr] = useState(false);
@@ -121,10 +124,12 @@ export function DemandCalendar({ section = "month", modes = ALL_MODES, defaultMo
 
   if (err) return <p className="dc-note">Could not load demand-calendar data. Reload the page to try again.</p>;
   if (!D || !PI) return <p className="dc-note">Loading demand calendar…</p>;
-  return section === "year" ? <YearView D={D} PI={PI} modes={modes} defaultMode={defaultMode} /> : <Calendar D={D} PI={PI} modes={modes} defaultMode={defaultMode} />;
+  return section === "year"
+    ? <YearView D={D} PI={PI} modes={modes} defaultMode={defaultMode} supplyFocus={supplyFocus} />
+    : <Calendar D={D} PI={PI} modes={modes} defaultMode={defaultMode} monthBarPortalRef={monthBarPortalRef} />;
 }
 
-function Calendar({ D, PI, modes, defaultMode, initialMonthKey }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode; initialMonthKey?: string }) {
+function Calendar({ D, PI, modes, defaultMode, initialMonthKey, monthBarPortalRef }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode; initialMonthKey?: string; monthBarPortalRef?: RefObject<HTMLElement | null> }) {
   const months = useMemo(() => [...new Set(D.dates.map((d) => d.slice(0, 7)))], [D]);
 
   const [m, setM] = useState(() => {
@@ -141,6 +146,23 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey }: { D: Data; PI:
   const [openDay, setOpenDay] = useState<number | null>(null);
   const [plData, setPlData] = useState<Record<number, number[][]>>({});
   const [tip, setTip] = useState<{ x: number; y: number; html: string } | null>(null);
+
+  // "Graph Type" — a quick, sample-data breakdown of Total supply (DC) by Category /
+  // Technology / Variable cost / Plants (same split as the Long-term box-plot grid's
+  // Graph Type picker), offered only where the calendar has both Supply modes.
+  const isSupplyCal = modes.includes("stack") && modes.includes("src");
+  const [showGraphType, setShowGraphType] = useState(false);
+  const [groupBy, setGroupBy] = useState<GroupBy>("category");
+  // The "Graph Type" tab is a placeholder: it shows the exact same chart as
+  // Plant / category (Total supply (DC)) — the dropdown doesn't change the data.
+  const graphGroups = null as ReturnType<typeof groupsFor> | null;
+
+  // When the caller gives us a header slot (e.g. a page title's "after" area), the
+  // month prev/next + select is portaled there instead of rendering in its usual
+  // spot in the controls row. The ref's target only exists after the caller's own
+  // first render, so this re-renders once it mounts.
+  const [monthBarSlot, setMonthBarSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => { setMonthBarSlot(monthBarPortalRef?.current ?? null); }, [monthBarPortalRef]);
 
   const off = useMemo(() => new Set(view === "cat" ? offCat : offPlant), [view, offCat, offPlant]);
   const toggleOff = (k: number) => {
@@ -211,11 +233,15 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey }: { D: Data; PI:
   }, []);
   const hideTip = useCallback(() => setTip(null), []);
 
-  /* ----- calendar grid layout ----- */
+  /* ----- calendar grid layout -----
+   * `first` is this month's Monday-based starting column (0 = Mon .. 6 = Sun); the
+   * slot array is sized to whole weeks so a 6-week month gets a 6th row instead of
+   * wrapping its last day(s) back into row 1. */
   const y = +mk.slice(0, 4), mo = +mk.slice(5) - 1;
   const first = (new Date(y, mo, 1).getDay() + 6) % 7, nd = new Date(y, mo + 1, 0).getDate();
-  const slots: (number | null)[] = new Array(35).fill(null);
-  for (let d = 1; d <= nd; d++) { let p = first + d - 1; if (p >= 35) p -= 35; slots[p] = d; }
+  const totalSlots = Math.ceil((first + nd) / 7) * 7;
+  const slots: (number | null)[] = new Array(totalSlots).fill(null);
+  for (let d = 1; d <= nd; d++) slots[first + d - 1] = d;
 
   const monthLabel = MON[mo] + " " + mk.slice(0, 4);
 
@@ -225,6 +251,9 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey }: { D: Data; PI:
         months={months} m={m} setM={setM} monthLabel={monthLabel}
         mode={mode} setMode={setMode} view={view} setView={setView}
         src={src} setSrc={setSrc} D={D} PI={PI} modes={modes}
+        monthBarSlot={monthBarSlot}
+        isSupplyCal={isSupplyCal} showGraphType={showGraphType} setShowGraphType={setShowGraphType}
+        groupBy={groupBy} setGroupBy={setGroupBy}
       />
 
       <Kpis D={D} idx={idx} mode={mode} isSingle={isSingle} srcSer={srcSer} series={series} off={off} />
@@ -233,10 +262,16 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey }: { D: Data; PI:
         <Heatmap D={D} idx={idx} mk={mk} picked={openDay} setPicked={setOpenDay} showTip={showTip} hideTip={hideTip} />
       ) : (
         <section className="dc-card">
-          <Legend
-            mode={mode} isSingle={isSingle} isSur={isSur} names={names} off={off}
-            toggleOff={toggleOff} demOn={demOn} setDemOn={setDemOn} srcInfo={srcInfo}
-          />
+          {graphGroups ? (
+            <ul className="dc-legend">
+              {graphGroups.map((g) => <li key={g.name}><button aria-pressed="true" disabled><span className="dc-sw" style={{ background: g.color }} />{g.name}</button></li>)}
+            </ul>
+          ) : (
+            <Legend
+              mode={mode} isSingle={isSingle} isSur={isSur} names={names} off={off}
+              toggleOff={toggleOff} demOn={demOn} setDemOn={setDemOn} srcInfo={srcInfo}
+            />
+          )}
           {srcLoading ? (
             <p className="dc-note">Loading plant data…</p>
           ) : (
@@ -252,9 +287,15 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey }: { D: Data; PI:
                       <div className="top"><span className="dn">{d}</span><span className="pk">no data</span></div>
                     </div>
                   );
+                  if (graphGroups) return (
+                    <GraphDayCell
+                      key={ds} D={D} i={i} d={d} weekend={false} groups={graphGroups} range={range}
+                      picked={openDay === i} onClick={() => setOpenDay(i)} showTip={showTip} hideTip={hideTip}
+                    />
+                  );
                   return (
                     <DayCell
-                      key={ds} D={D} i={i} d={d} wrapped={p < first} monIdx={mo}
+                      key={ds} D={D} i={i} d={d} wrapped={false} weekend={false} monIdx={mo}
                       mode={mode} view={view} off={off} demOn={demOn}
                       srcSer={srcSer} srcInfo={srcInfo} series={series} names={names}
                       range={range} picked={openDay === i} onClick={() => setOpenDay(i)}
@@ -267,12 +308,19 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey }: { D: Data; PI:
           )}
           <p className="dc-note">
             {isSingle ? "Pk = highest block of the day · chip = day energy (MU)" : "Chip = tightest block (blue surplus, red deficit)"}
-            {" · hover a day for block values · click a day to open it full size · overflow days of 6-week months sit in row 1."}
+            {" · hover a day for block values · click a day to open it full size."}
           </p>
         </section>
       )}
 
-      {openDay != null && (
+      {openDay != null && graphGroups && (
+        <GraphDayModal
+          D={D} i={openDay} groups={graphGroups}
+          onClose={() => setOpenDay(null)} setDay={setOpenDay}
+          showTip={showTip} hideTip={hideTip}
+        />
+      )}
+      {openDay != null && !graphGroups && (
         <DayModal
           D={D} i={openDay} mode={mode} view={view} off={off} demOn={demOn}
           srcSer={srcSer} srcInfo={srcInfo} series={series} names={names}
@@ -289,35 +337,49 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey }: { D: Data; PI:
 }
 
 /* ---------- controls ---------- */
-function Controls({ months, m, setM, monthLabel, mode, setMode, view, setView, src, setSrc, D, PI, modes }: {
+function Controls({ months, m, setM, monthLabel, mode, setMode, view, setView, src, setSrc, D, PI, modes, monthBarSlot, isSupplyCal, showGraphType, setShowGraphType, groupBy, setGroupBy }: {
   months: string[]; m: number; setM: (n: number) => void; monthLabel: string;
   mode: Mode; setMode: (x: Mode) => void; view: View; setView: (v: View) => void;
   src: string; setSrc: (s: string) => void; D: Data; PI: PlantInfo[]; modes: Mode[];
+  monthBarSlot: HTMLElement | null;
+  isSupplyCal: boolean; showGraphType: boolean; setShowGraphType: (b: boolean) => void;
+  groupBy: GroupBy; setGroupBy: (g: GroupBy) => void;
 }) {
   const srcOptions = useMemo(() => {
     const types = [...new Set(PI.map((p) => p.t))];
     return { cats: D.cats, types: types.map((t) => ({ t, plants: PI.map((p, k) => ({ ...p, k })).filter((p) => p.t === t && p.nz > 0) })).filter((g) => g.plants.length) };
   }, [D, PI]);
 
+  const monthBar = (
+    <div className="dc-monthbar">
+      <button aria-label="Previous month" disabled={m === 0} onClick={() => setM(Math.max(0, m - 1))}>◀</button>
+      <select aria-label="Month" value={m} onChange={(e) => setM(+e.target.value)}>
+        {months.map((mm, k) => <option key={mm} value={k}>{MON[+mm.slice(5) - 1] + " " + mm.slice(0, 4)}</option>)}
+      </select>
+      <button aria-label="Next month" disabled={m === months.length - 1} onClick={() => setM(Math.min(months.length - 1, m + 1))}>▶</button>
+    </div>
+  );
+
   return (
     <div className="dc-controls">
-      <div className="dc-monthbar">
-        <button aria-label="Previous month" disabled={m === 0} onClick={() => setM(Math.max(0, m - 1))}>◀</button>
-        <select aria-label="Month" value={m} onChange={(e) => setM(+e.target.value)}>
-          {months.map((mm, k) => <option key={mm} value={k}>{MON[+mm.slice(5) - 1] + " " + mm.slice(0, 4)}</option>)}
-        </select>
-        <button aria-label="Next month" disabled={m === months.length - 1} onClick={() => setM(Math.min(months.length - 1, m + 1))}>▶</button>
-      </div>
+      {/* Given a header slot, the month bar renders there instead of here (see
+          `monthBarPortalRef` on <DemandCalendar>) — this spot stays empty. */}
+      {monthBarSlot ? createPortal(monthBar, monthBarSlot) : monthBar}
 
       {modes.length > 1 && (
         <div className="dc-seg" role="group" aria-label="Chart type">
           {modes.map((id) => (
-            <button key={id} aria-pressed={mode === id} onClick={() => setMode(id)}>{MODE_LABEL[id]}</button>
+            <button key={id} aria-pressed={!showGraphType && mode === id} onClick={() => { setShowGraphType(false); setMode(id); }}>{MODE_LABEL[id]}</button>
           ))}
+          {isSupplyCal && (
+            <button aria-pressed={showGraphType} onClick={() => { setShowGraphType(true); setMode("src"); setSrc("tot"); }}>Graph Type</button>
+          )}
         </div>
       )}
 
-      {mode === "src" && (
+      {showGraphType && <GraphTypeSelect value={groupBy} onChange={setGroupBy} className="dc-srcsel" showLabel={false} />}
+
+      {!showGraphType && mode === "src" && (
         <select className="dc-srcsel" aria-label="Plant or category" value={src} onChange={(e) => setSrc(e.target.value)}>
           <option value="tot">Total supply (DC)</option>
           <optgroup label="Categories">
@@ -331,7 +393,7 @@ function Controls({ months, m, setM, monthLabel, mode, setMode, view, setView, s
         </select>
       )}
 
-      {mode === "stack" && (
+      {!showGraphType && mode === "stack" && (
         <div className="dc-seg" role="group" aria-label="Stack by">
           <button aria-pressed={view === "cat"} onClick={() => setView("cat")}>By source</button>
           <button aria-pressed={view === "plant"} onClick={() => setView("plant")}>Top plants</button>
@@ -429,9 +491,199 @@ function Legend({ mode, isSingle, isSur, names, off, toggleOff, demOn, setDemOn,
   );
 }
 
+/** Per-block tooltip for a Graph Type cell — same `.r` / `.sw` / `<hr>` markup as
+ *  the normal day-cell tooltip, listing each group's share of that block's Total
+ *  supply (DC) instead of the real source categories. */
+function graphTipHtml(D: Data, i: number, b: number, groups: Group[]): string {
+  const d = D.dates[i];
+  const head = `<h4>${+d.slice(8)} ${MON[+d.slice(5, 7) - 1].slice(0, 3)} · Block ${b + 1} · ${bt(b)}–${bt(b + 1)}</h4>`;
+  const av = D.av[i][b];
+  let h = head;
+  for (let k = groups.length - 1; k >= 0; k--) {
+    const gr = groups[k];
+    h += `<div class="r"><span><i class="sw" style="background:${gr.color}"></i>${gr.name}</span><b>${fmt(av * gr.share)}</b></div>`;
+  }
+  return h + "<hr>" + tail(av, D.dem[i][b]);
+}
+
+/* ---------- Graph Type day cell: Total supply (DC) split by Category / Technology /
+ *  Variable cost / Plants — a quick, sample-data breakdown (see breakdown.ts). */
+function GraphDayCell({ D, i, d, weekend, groups, range, picked, onClick, showTip, hideTip }: {
+  D: Data; i: number; d: number; weekend: boolean; groups: Group[]; range: [number, number];
+  picked: boolean; onClick: () => void;
+  showTip: (e: { clientX: number; clientY: number }, html: string) => void; hideTip: () => void;
+}) {
+  const [hoverB, setHoverB] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const W = 140, H = 54, mg = { l: 1, r: 1, t: 2, b: 1 };
+  const [ymin, ymax] = range;
+  const x = (b: number) => mg.l + (b * (W - mg.l - mg.r)) / 95;
+  const y = (v: number) => mg.t + ((ymax - v) * (H - mg.t - mg.b)) / (ymax - ymin || 1);
+  const g: Geom = { x, y };
+
+  const split = splitByGroup(D.av[i], groups);
+  const cum = new Array(96).fill(0);
+  const bands = split.map((arr) => {
+    const lo = cum.slice();
+    for (let b = 0; b < 96; b++) cum[b] += arr[b];
+    return { lo, hi: cum.slice() };
+  });
+
+  const s = dayStats(D, i), dem = D.dem[i];
+
+  const blockFromEvent = (e: React.PointerEvent) => {
+    const r = svgRef.current!.getBoundingClientRect();
+    const frac = (e.clientX - r.left) / r.width;
+    return Math.max(0, Math.min(95, Math.round(frac * 95)));
+  };
+  const onMove = (e: React.PointerEvent) => {
+    const b = blockFromEvent(e);
+    setHoverB(b);
+    showTip(e, graphTipHtml(D, i, b, groups));
+  };
+  const onLeave = () => { setHoverB(null); hideTip(); };
+
+  return (
+    <button
+      className={"dc-cell" + (weekend ? " dc-weekend" : "")} aria-pressed={picked} onClick={onClick}
+      aria-label={`${d}: peak demand ${fmt(dem[s.pk])} MW`}
+    >
+      <div className="top">
+        <span className="dn">{d}</span>
+        <span className="pk">Pk {fmt(dem[s.pk])}</span>
+        <span className={"dc-chip" + (s.sm < 0 ? " neg" : "")}>{(s.sm >= 0 ? "+" : "") + fmt(s.sm)}</span>
+      </div>
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} onPointerMove={onMove} onPointerLeave={onLeave} role="img" aria-hidden>
+        {bands.map((b, k) => <path key={k} d={areaPath(b.lo, b.hi, g)} fill={groups[k].color} />)}
+        {hoverB != null && (
+          <>
+            <line x1={x(hoverB)} x2={x(hoverB)} y1={mg.t} y2={H - mg.b} stroke={cssv("--dc-text2")} strokeWidth={1} strokeDasharray="3 3" />
+          </>
+        )}
+      </svg>
+    </button>
+  );
+}
+
+/* ---------- click-to-expand modal for a Graph Type day (quick variant of DayModal) ---------- */
+function GraphDayModal({ D, i, groups, onClose, setDay, showTip, hideTip }: {
+  D: Data; i: number; groups: Group[];
+  onClose: () => void; setDay: (i: number) => void;
+  showTip: (e: { clientX: number; clientY: number }, html: string) => void; hideTip: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowLeft" && i > 0) setDay(i - 1);
+      else if (e.key === "ArrowRight" && i < D.dates.length - 1) setDay(i + 1);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [i, D, onClose, setDay]);
+
+  const d = D.dates[i];
+  const title = `${+d.slice(8)} ${MON[+d.slice(5, 7) - 1]} ${d.slice(0, 4)}`;
+  const s = dayStats(D, i), dem = D.dem[i], av = D.av[i];
+  const avPk = av.reduce((mm, v, b) => (v > av[mm] ? b : mm), 0);
+  const mu = (a: number[]) => a.reduce((x, y) => x + y, 0) * 0.00025;
+  const kpis: [string, string, string, string][] = [
+    ["Peak demand met", fmt(dem[s.pk]) + " MW", "Block " + (s.pk + 1) + " · " + bt(s.pk), ""],
+    ["Peak supply (DC)", fmt(av[avPk]) + " MW", "Block " + (avPk + 1) + " · " + bt(avPk), ""],
+    ["Tightest block", (s.sm >= 0 ? "+" : "") + fmt(s.sm) + " MW", "Block " + (s.sb + 1) + " · " + bt(s.sb), s.sm < 0 ? "neg" : "pos"],
+    ["Energy (demand / DC)", mu(dem).toFixed(1) + " / " + mu(av).toFixed(1) + " MU", "Day total", ""],
+  ];
+
+  return (
+    <div className="dc-ov" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="dc-modal" role="dialog" aria-modal="true" aria-label={"Supply detail for " + title}>
+        <div className="dc-mhead">
+          <div className="dc-monthbar">
+            <button aria-label="Previous day" disabled={i === 0} onClick={() => setDay(i - 1)}>◀</button>
+            <h3 style={{ minWidth: "14ch" }}>{title}</h3>
+            <button aria-label="Next day" disabled={i === D.dates.length - 1} onClick={() => setDay(i + 1)}>▶</button>
+          </div>
+          <button onClick={onClose}>Close</button>
+        </div>
+
+        <section className="dc-kpis">
+          {kpis.map((k) => (
+            <div className="dc-kpi" key={k[0]}>
+              <div className="l">{k[0]}</div><div className={"v " + k[3]}>{k[1]}</div><div className="n">{k[2]}</div>
+            </div>
+          ))}
+        </section>
+
+        <ul className="dc-legend">
+          {groups.map((gr) => <li key={gr.name}><button aria-pressed="true" disabled><span className="dc-sw" style={{ background: gr.color }} />{gr.name}</button></li>)}
+        </ul>
+
+        <div className="dc-note" style={{ margin: "2px 0 0" }}>Total supply (DC) by group · stacked, MW</div>
+        <BigGraphDayChart D={D} i={i} groups={groups} showTip={showTip} hideTip={hideTip} />
+        <p className="dc-note">Hover for block values · ← → step days · Esc closes.</p>
+      </div>
+    </div>
+  );
+}
+
+function BigGraphDayChart({ D, i, groups, showTip, hideTip }: {
+  D: Data; i: number; groups: Group[];
+  showTip: (e: { clientX: number; clientY: number }, html: string) => void; hideTip: () => void;
+}) {
+  const [hoverB, setHoverB] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const W = 960, H = 420, mg = { l: 56, r: 16, t: 20, b: 30 };
+
+  const av = D.av[i];
+  const split = splitByGroup(av, groups);
+  const hi = (Math.max(...av) || 1) * 1.08;
+  const step = niceStep(hi, 5);
+  const ymax = Math.ceil(hi / step) * step, ymin = 0;
+  const x = (b: number) => mg.l + (b * (W - mg.l - mg.r)) / 95;
+  const yFn = (v: number) => mg.t + ((ymax - v) * (H - mg.t - mg.b)) / (ymax - ymin || 1);
+  const g: Geom = { x, y: yFn };
+
+  const cum = new Array(96).fill(0);
+  const bands = split.map((arr) => {
+    const lo = cum.slice();
+    for (let b = 0; b < 96; b++) cum[b] += arr[b];
+    return { lo, hi: cum.slice() };
+  });
+
+  const gridEls: React.ReactNode[] = [];
+  for (let v = ymin; v <= ymax + 1e-6; v += step) {
+    gridEls.push(<line key={"g" + v} x1={mg.l} x2={W - mg.r} y1={yFn(v)} y2={yFn(v)} stroke={v === 0 ? cssv("--dc-muted") : cssv("--dc-grid")} />);
+    gridEls.push(<text key={"t" + v} x={mg.l - 8} y={yFn(v) + 4} textAnchor="end" className="num" fontSize={11} fill={cssv("--dc-muted")}>{v === 0 ? "0" : (v / 1000).toLocaleString("en-IN") + "k"}</text>);
+  }
+  const xticks: React.ReactNode[] = [];
+  for (let b = 0; b < 96; b += 8) xticks.push(<text key={"x" + b} x={x(b)} y={H - 8} textAnchor={b === 0 ? "start" : "middle"} className="num" fontSize={11} fill={cssv("--dc-muted")}>{bt(b)}</text>);
+  xticks.push(<text key="xend" x={x(95)} y={H - 8} textAnchor="end" className="num" fontSize={11} fill={cssv("--dc-muted")}>23:45</text>);
+
+  const blockFromEvent = (e: React.PointerEvent) => {
+    const r = svgRef.current!.getBoundingClientRect();
+    const frac = (e.clientX - r.left) / r.width;
+    const xvb = frac * W;
+    return Math.max(0, Math.min(95, Math.round(((xvb - mg.l) / (W - mg.l - mg.r)) * 95)));
+  };
+  const onMove = (e: React.PointerEvent) => { const b = blockFromEvent(e); setHoverB(b); showTip(e, graphTipHtml(D, i, b, groups)); };
+  const onLeave = () => { setHoverB(null); hideTip(); };
+
+  return (
+    <div className="dc-bigwrap">
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="dc-big" onPointerMove={onMove} onPointerLeave={onLeave} role="img" aria-label="Day detail chart">
+        <g>{gridEls}</g>
+        <g>{xticks}</g>
+        {bands.map((b, k) => <path key={k} d={areaPath(b.lo, b.hi, g)} fill={groups[k].color} stroke={cssv("--dc-surface")} strokeWidth={1} strokeLinejoin="round" />)}
+        {hoverB != null && (
+          <line x1={x(hoverB)} x2={x(hoverB)} y1={mg.t} y2={H - mg.b} stroke={cssv("--dc-text2")} strokeWidth={1} strokeDasharray="3 3" />
+        )}
+      </svg>
+    </div>
+  );
+}
+
 /* ---------- a single day cell (local hover state → cheap re-render) ---------- */
-function DayCell({ D, i, d, wrapped, monIdx, mode, view, off, demOn, srcSer, srcInfo, series, names, range, picked, onClick, showTip, hideTip }: {
-  D: Data; i: number; d: number; wrapped: boolean; monIdx: number;
+function DayCell({ D, i, d, wrapped, weekend, monIdx, mode, view, off, demOn, srcSer, srcInfo, series, names, range, picked, onClick, showTip, hideTip }: {
+  D: Data; i: number; d: number; wrapped: boolean; weekend?: boolean; monIdx: number;
   mode: Mode; view: View; off: Set<number>; demOn: boolean;
   srcSer: (i: number) => number[] | null; srcInfo: () => { name: string; fill: string; op: number; line: string };
   series: (i: number) => number[][]; names: string[]; range: [number, number];
@@ -518,7 +770,7 @@ function DayCell({ D, i, d, wrapped, monIdx, mode, view, off, demOn, srcSer, src
 
   return (
     <button
-      className={"dc-cell" + (wrapped ? " wrapped" : "")} aria-pressed={picked} onClick={onClick}
+      className={"dc-cell" + (wrapped ? " wrapped" : "") + (weekend ? " dc-weekend" : "")} aria-pressed={picked} onClick={onClick}
       aria-label={`${d} ${MON[monIdx]}: peak demand ${fmt(dem[s.pk])} MW`}
     >
       <div className="top">
@@ -773,7 +1025,7 @@ function BigDayChart({ D, i, mode, off, demOn, single, srcInfo, series, names, v
 /* ---------- year view (planning-horizon "Year ahead") ---------- */
 type YData = { cat: number[][]; dem: number[]; mn: number[]; mb: number[] };
 
-function YearView({ D, PI, modes, defaultMode }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode }) {
+function YearView({ D, PI, modes, defaultMode, supplyFocus = false }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode; supplyFocus?: boolean }) {
   const [openDay, setOpenDay] = useState<number | null>(null);
   const [openMonth, setOpenMonth] = useState<string | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
@@ -800,19 +1052,21 @@ function YearView({ D, PI, modes, defaultMode }: { D: Data; PI: PlantInfo[]; mod
   }, [D]);
 
   const kpis = useMemo((): [string, string, string, string][] => {
-    let dm = 0, sm = 0, pk = { v: 0, i: 0, b: 0 }, mn = { v: 1e9, i: 0, b: 0 }, def = 0;
+    let dm = 0, sm = 0, pk = { v: 0, i: 0, b: 0 }, pkAv = { v: 0, i: 0, b: 0 }, mn = { v: 1e9, i: 0, b: 0 }, def = 0;
     D.dates.forEach((_, i) => {
       const d = D.dem[i], a = D.av[i];
-      d.forEach((v, b) => { dm += v; sm += a[b]; if (v > pk.v) pk = { v, i, b }; const x = a[b] - v; if (x < 0) def++; if (x < mn.v) mn = { v: x, i, b }; });
+      d.forEach((v, b) => { dm += v; sm += a[b]; if (v > pk.v) pk = { v, i, b }; if (a[b] > pkAv.v) pkAv = { v: a[b], i, b }; const x = a[b] - v; if (x < 0) def++; if (x < mn.v) mn = { v: x, i, b }; });
     });
     const dl = (o: { i: number; b: number }) => { const d = D.dates[o.i]; return +d.slice(8) + " " + MON[+d.slice(5, 7) - 1].slice(0, 3) + " " + d.slice(2, 4) + " · B" + (o.b + 1) + " · " + bt(o.b); };
     return [
-      ["Peak demand", fmt(pk.v) + " MW", dl(pk), ""],
+      supplyFocus ? ["Peak availability", fmt(pkAv.v) + " MW", dl(pkAv), ""] : ["Peak demand", fmt(pk.v) + " MW", dl(pk), ""],
       ["Tightest block", (mn.v >= 0 ? "+" : "") + fmt(mn.v) + " MW", dl(mn), mn.v < 0 ? "neg" : "pos"],
       ["Deficit blocks", fmt(def), "of " + fmt(D.dates.length * 96) + " blocks", def ? "neg" : "pos"],
-      ["Energy (demand / DC)", fmt(dm * 0.00025) + " / " + fmt(sm * 0.00025) + " MU", D.dates.length + " days", ""],
+      supplyFocus
+        ? ["Energy (DC / demand)", fmt(sm * 0.00025) + " / " + fmt(dm * 0.00025) + " MU", D.dates.length + " days", ""]
+        : ["Energy (demand / DC)", fmt(dm * 0.00025) + " / " + fmt(sm * 0.00025) + " MU", D.dates.length + " days", ""],
     ];
-  }, [D]);
+  }, [D, supplyFocus]);
 
   // Open the clicked month's calendar inline, right below the deficit grid (no page change).
   const jumpToMonth = (mk: string) => {
@@ -890,6 +1144,7 @@ function YearView({ D, PI, modes, defaultMode }: { D: Data; PI: PlantInfo[]; mod
           hideTip={hideTip}
           selectedSeason={selectedSeason}
           onSelectSeason={(s) => setSelectedSeason((prev) => (prev === s ? null : s))}
+          supplyFocus={supplyFocus}
         />
       </section>
 
@@ -931,7 +1186,7 @@ const SEASONS_DEF: { name: string; label: string; months: number[] }[] = [
   { name: "Late Winter", label: "Dec", months: [12] },
 ];
 
-function YearCharts({ D, months, onDay, showTip, hideTip, selectedSeason, onSelectSeason, }
+function YearCharts({ D, months, onDay, showTip, hideTip, selectedSeason, onSelectSeason, supplyFocus = false, }
   : {
     D: Data;
     Y: YData;
@@ -941,6 +1196,7 @@ function YearCharts({ D, months, onDay, showTip, hideTip, selectedSeason, onSele
     hideTip: () => void;
     selectedSeason?: string | null;
     onSelectSeason?: (seasonName: string) => void;
+    supplyFocus?: boolean;
   }) {
   const n = D.dates.length;
   const [hoverI, setHoverI] = useState<number | null>(null);
@@ -1050,7 +1306,7 @@ function YearCharts({ D, months, onDay, showTip, hideTip, selectedSeason, onSele
     <>
       <div className="dc-note" style={{ margin: "8px 0 4px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span>
-          <b style={{ color: cssv("--dc-text") }}>Daily Demand Distribution</b> · Season wise distribution (Min, Q1, Median, Q3, Max)
+          <b style={{ color: cssv("--dc-text") }}>{supplyFocus ? "Daily Supply Distribution" : "Daily Demand Distribution"}</b> · Season wise distribution (Min, Q1, Median, Q3, Max)
         </span>
         <span style={{ fontSize: 11, color: cssv("--dc-muted") }}>
           Click a season tag above to filter months · Click a bar to view day detail

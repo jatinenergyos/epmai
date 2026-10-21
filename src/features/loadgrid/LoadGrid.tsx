@@ -8,10 +8,11 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react"
 import { Chart } from "@highcharts/react"
 import "@highcharts/react/series/BoxPlot" // registers the boxplot series type
 import { MONTHS, monthName } from "./constants"
-import { fullMonthOptions, miniMonthOptions, type Kind } from "./monthCharts"
+import { fullGroupedBoxOptions, fullGroupedLineOptions, fullMonthOptions, miniGroupedBoxOptions, miniGroupedLineOptions, miniMonthOptions, type Kind } from "./monthCharts"
 import { useChartTheme } from "./theme"
 import type { DayRow } from "./types"
 import { buildDataset, LG_SETS, SEASONS, useDcData, type GridDataset } from "./data"
+import { groupsFor, splitByGroup, type GroupBy } from "./breakdown"
 import {
   ChartCard, CompareProvider, CompareTray, ChartViewer, LazyChart, Segmented,
   useCompare, type ChartSpec,
@@ -55,10 +56,13 @@ export function hasLoadGrid(mod: string): boolean {
   return mod in LG_SETS
 }
 
-export default function LoadGrid({ kind, mod }: { kind: Kind; mod: string }) {
+export default function LoadGrid({ kind, mod, groupBy = null }: { kind: Kind; mod: string; groupBy?: GroupBy | null }) {
   const { D, err } = useDcData()
   const cfg = setFor(mod)
   const ds = useMemo<GridDataset | null>(() => (D ? buildDataset(D, cfg.series) : null), [D, cfg.series])
+  // "Graph Type" grouping (Category / Technology / Variable cost / Plants) only applies
+  // to the Supply declared-capacity box plot — every other module/kind is untouched.
+  const groups = useMemo(() => (groupBy && cfg.series === "av" ? groupsFor(groupBy) : null), [groupBy, cfg.series])
 
   if (err) return <p className="lg-note">Could not load the load-profile data. Reload the page to try again.</p>
   if (!ds) return <p className="lg-note">Loading load profiles…</p>
@@ -66,7 +70,7 @@ export default function LoadGrid({ kind, mod }: { kind: Kind; mod: string }) {
   return (
     <CompareProvider>
       <div className="lg-root">
-        <Grid ds={ds} kind={kind} cfg={cfg} />
+        <Grid ds={ds} kind={kind} cfg={cfg} groups={groups} />
         <CompareTray />
         <ChartViewer />
       </div>
@@ -74,13 +78,15 @@ export default function LoadGrid({ kind, mod }: { kind: Kind; mod: string }) {
   )
 }
 
-function Grid({ ds, kind, cfg }: { ds: GridDataset; kind: Kind; cfg: ReturnType<typeof setFor> }) {
+function Grid({ ds, kind, cfg, groups }: { ds: GridDataset; kind: Kind; cfg: ReturnType<typeof setFor>; groups: ReturnType<typeof groupsFor> | null }) {
   const { openCompare } = useCompare()
   const t = useChartTheme()
   const [size, setSize] = useState<Size>("M")
   const [period, setPeriod] = useState<Period>("month")
   const scrollRef = useRef<HTMLDivElement>(null)
   const availW = useElementWidth(scrollRef)
+  const grouped = groups
+  const splitDay = (d: DayRow) => splitByGroup(d.values, grouped!)
 
   // Build the column set, a (year, colKey) -> days lookup, and a spec per
   // populated cell — all keyed on the current period. The flat spec list is the
@@ -120,18 +126,23 @@ function Grid({ ds, kind, cfg }: { ds: GridDataset; kind: Kind; cfg: ReturnType<
       for (const c of columns) {
         const days = dayMap.get(`${y}:${c.key}`)
         if (!days || !days.length) continue
-        const id = `${kind}-${cfg.series}-${period}-${y}-${c.key}`
+        const id = `${kind}-${cfg.series}-${grouped ? grouped.map((g) => g.name).join("|") : "agg"}-${period}-${y}-${c.key}`
         specs.set(id, {
           id,
           title: titleOf.get(c.key)?.(y) ?? `${c.label} ${y}`,
-          subtitle: cfg.label + (kind === "line" ? " · load profiles" : " · distribution")
+          subtitle: cfg.label + (grouped ? " · by " + grouped.length + " groups" : kind === "line" ? " · load profiles" : " · distribution")
             + (period === "season" ? ` · ${c.title?.split("· ")[1] ?? ""}` : ""),
-          options: fullMonthOptions(t, kind, days, cfg.label + " · MW", dayLabel, xTitle),
+          options: grouped
+            ? (kind === "box"
+              ? fullGroupedBoxOptions(t, days, grouped, splitDay, cfg.label + " · MW", dayLabel, xTitle)
+              : fullGroupedLineOptions(t, days, grouped, splitDay, cfg.label + " · MW"))
+            : fullMonthOptions(t, kind, days, cfg.label + " · MW", dayLabel, xTitle),
         })
       }
     }
     return { columns, dayMap, specs }
-  }, [ds, kind, period, cfg.series, cfg.label, t])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ds, kind, period, cfg.series, cfg.label, t, grouped])
 
   const pool = useMemo(() => [...model.specs.values()], [model])
   const unit = period === "month" ? "month" : "season"
@@ -208,7 +219,8 @@ function Grid({ ds, kind, cfg }: { ds: GridDataset; kind: Kind; cfg: ReturnType<
                 <th className="lg-row-head">{year}</th>
                 {model.columns.map((c) => {
                   const days = model.dayMap.get(`${year}:${c.key}`) ?? []
-                  const spec = model.specs.get(`${kind}-${cfg.series}-${period}-${year}-${c.key}`)
+                  const groupKey = grouped ? grouped.map((g) => g.name).join("|") : "agg"
+                  const spec = model.specs.get(`${kind}-${cfg.series}-${groupKey}-${period}-${year}-${c.key}`)
                   return (
                     <td key={c.key}>
                       {days.length && spec ? (
@@ -219,7 +231,16 @@ function Grid({ ds, kind, cfg }: { ds: GridDataset; kind: Kind; cfg: ReturnType<
                                 key forces a fresh chart when the series type or basis
                                 flips, since an in-place update leaves stale artifacts. */}
                             <LazyChart height={h}>
-                              <Chart key={`${kind}-${cfg.series}-${period}`} options={miniMonthOptions(t, kind, days, h, w - 14, tiny)} />
+                              <Chart
+                                key={`${kind}-${cfg.series}-${groupKey}-${period}`}
+                                options={
+                                  grouped
+                                    ? (kind === "box"
+                                      ? miniGroupedBoxOptions(t, days, grouped, splitDay, h, w - 14, tiny)
+                                      : miniGroupedLineOptions(t, days, grouped, splitDay, h, w - 14, tiny))
+                                    : miniMonthOptions(t, kind, days, h, w - 14, tiny)
+                                }
+                              />
                             </LazyChart>
                           </ChartCard>
                         </div>
