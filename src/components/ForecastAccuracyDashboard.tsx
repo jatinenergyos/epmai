@@ -10,10 +10,9 @@ import {
   Area, Bar, CartesianGrid, ComposedChart, Legend as RLegend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { dLabel, NOW, type TfId } from "@/data/engine";
-import { buildForecastBlocks, type ForecastBlock } from "@/data/forecastBlocks";
+import { buildForecastBlocks, lastBlockForDate, type ForecastBlock } from "@/data/forecastBlocks";
 
-/** Block-number x-axis ticks: every 3rd block across whatever range is actually
- *  rendered (the full 96, or just the remaining blocks on Intra-day), always ending
+/** Block-number x-axis ticks: every 3rd block across the full 96, always ending
  *  on the last one so the axis never gets cut short. */
 function buildTicks(startI: number, endI: number): number[] {
   const ticks: number[] = [];
@@ -32,16 +31,16 @@ function endOfWeek(d: Date) {
   return e;
 }
 
-/** Day-ahead only: lets you page within the current week (Mon–Sun), default today —
- *  a dummy control, same as the chart it sits above, so it doesn't change any data. */
-export function DemandForecastWeekNav() {
+/** Day-ahead only: lets you page within the current week (Mon–Sun), default today.
+ *  The chart below fills a past day fully, today up to the current block, and leaves
+ *  a future day empty. */
+export function DemandForecastWeekNav({ date, onChange }: { date: Date; onChange: (d: Date) => void }) {
   const weekStart = useMemo(() => startOfWeek(NOW), []);
   const weekEnd = useMemo(() => endOfWeek(NOW), []);
-  const [date, setDate] = useState(() => new Date(NOW));
-  const shift = (n: number) => setDate((prev) => {
-    const d = new Date(prev); d.setDate(d.getDate() + n);
-    return d < weekStart || d > weekEnd ? prev : d;
-  });
+  const shift = (n: number) => {
+    const d = new Date(date); d.setDate(d.getDate() + n);
+    if (d >= weekStart && d <= weekEnd) onChange(d);
+  };
   return (
     <div className="inline-flex items-center gap-1 rounded-md border bg-card p-1 text-[13px]">
       <button type="button" aria-label="Previous day" disabled={date.getTime() <= weekStart.getTime()} onClick={() => shift(-1)}
@@ -143,8 +142,8 @@ function ErrorTable({ title, buckets, color }: { title: string; buckets: string[
   );
 }
 
-export function ForecastAccuracyDashboard({ tf }: { tf: TfId }) {
-  const rows = useMemo(() => buildForecastBlocks(tf), [tf]);
+export function ForecastAccuracyDashboard({ tf, date }: { tf: TfId; date?: Date }) {
+  const rows = useMemo(() => buildForecastBlocks(tf, date ? lastBlockForDate(date) : undefined), [tf, date]);
   const ticks = useMemo(() => buildTicks(rows[0]?.i ?? 0, rows[rows.length - 1]?.i ?? 95), [rows]);
 
   return (

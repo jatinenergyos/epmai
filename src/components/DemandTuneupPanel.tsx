@@ -10,8 +10,7 @@ import { CartesianGrid, Legend as RLegend, Line, LineChart, ResponsiveContainer,
 import type { TfId } from "@/data/engine";
 import { buildForecastBlocks } from "@/data/forecastBlocks";
 
-/** Block-number x-axis ticks: every 3rd block across whatever range is actually
- *  rendered (the full 96, or just the remaining blocks on Intra-day), always ending
+/** Block-number x-axis ticks: every 3rd block across the full 96, always ending
  *  on the last one so the axis never gets cut short. */
 function buildTicks(startI: number, endI: number): number[] {
   const ticks: number[] = [];

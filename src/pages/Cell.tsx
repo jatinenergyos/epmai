@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
-import { CAD, isMod, modName, tfIdx, tfName } from "@/data/engine";
+import { CAD, NOW, isMod, modName, tfIdx, tfName } from "@/data/engine";
 import { G, statusText } from "@/data/model";
 import { SUBS, det } from "@/data/insights";
 import { Chart, Legend } from "@/components/chart/Chart";
@@ -23,6 +24,7 @@ export function CellPage() {
   const { tf } = useModuleTf();
   const { tab } = useCellTab();
   const { openDrill } = usePanels();
+  const [fcDate, setFcDate] = useState(() => new Date(NOW));
   if (!isMod(moduleId)) return <NotFound />;
   const mod = moduleId, g = G(mod, tf), s = g.sum, ti = tfIdx(tf);
   const subs = SUBS[mod];
@@ -62,10 +64,10 @@ export function CellPage() {
             }
             if (isDashboard) {
              
-              const forecastNav = tf === "da" ? <DemandForecastWeekNav /> : tf === "id" ? undefined : <FreeDateNav />;
+              const forecastNav = tf === "da" ? <DemandForecastWeekNav date={fcDate} onChange={setFcDate} /> : tf === "id" ? undefined : <FreeDateNav />;
               return (
                 <Section title={activeSub.n} desc={activeSub.d} action={forecastNav}>
-                  <ForecastAccuracyDashboard tf={tf} />
+                  <ForecastAccuracyDashboard tf={tf} date={tf === "da" ? fcDate : undefined} />
                 </Section>
               );
             }
