@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
-import { CAD, MODS, MON, TFS, modName, tfIdx, tfName } from "@/data/engine";
+import { CAD, MODS, MON, NOW, TFS, modName, tfIdx, tfName } from "@/data/engine";
 import { G } from "@/data/model";
 import { Chart, Legend } from "@/components/chart/Chart";
 import { CAL_SETS, DemandCalendar } from "@/components/DemandCalendar";
@@ -40,6 +40,8 @@ export function HorizonPage() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [market, setMarket] = useState(MARKETS[0]);
   const [exchange, setExchange] = useState(EXCHANGES[0]);
+  const [dayGroupBy, setDayGroupBy] = useState<GroupBy>("category");
+  const [dayOffset, setDayOffset] = useState(0);
   if (tf === "mo" && calSet) {
     // Demand's and Supply's month-bar (prev/next + month select) renders up here,
     // top right, via a portal — see `monthBarPortalRef` on <DemandCalendar> — and
@@ -191,6 +193,15 @@ export function HorizonPage() {
   const isDemandWeek = mod === "demand" && tf === "wk";
   const isMarketWeek = mod === "mi" && tf === "wk";
   const isWeekGrid = isSupplyWeek || isDemandWeek || isMarketWeek;
+  // Day-ahead Demand/Supply get the same title/crumb/KPI-row removal as Week-ahead,
+  // plus a Today/Tomorrow/Yesterday day badge in place of the chart section's
+  // title/desc text — a placeholder like Supply's Graph Type picker here: paging it
+  // doesn't change the chart underneath, which stays exactly as it was. Nothing below
+  // is deleted, only skipped for this mod/tf pair — every other horizon still renders
+  // the title/crumb/"See this module" link/KPI row/chart-section text unchanged.
+  const isSupplyDay = mod === "supply" && tf === "da";
+  const isDemandDay = mod === "demand" && tf === "da";
+  const isDayFocus = isSupplyDay || isDemandDay;
 
   const marketExchangeControls = (
     <div className="flex items-center gap-2">
@@ -217,7 +228,7 @@ export function HorizonPage() {
 
   return (
     <>
-      {!isWeekGrid && (
+      {!(isWeekGrid || isDayFocus) && (
         <PageHead
           crumb={TFS[ti].hz}
           title={<>{modName(mod)} <span className="font-normal text-muted-foreground">· {tfName(tf)}</span></>}
@@ -236,19 +247,36 @@ export function HorizonPage() {
           <KeyDetails mod={mod} tf={tf} />
         </div>
       ) : (
-        <div className={isWeekGrid ? "space-y-6" : "mt-6 space-y-6"}>
-          {!isWeekGrid && g.kpis && <Kpis items={g.kpis} />}
+        <div className={(isWeekGrid || isDayFocus) ? "space-y-6" : "mt-6 space-y-6"}>
+          {!(isWeekGrid || isDayFocus) && g.kpis && <Kpis items={g.kpis} />}
           <Section
-            title={isWeekGrid ? (isSupplyWeek ? <GraphTypeSelect value={weekGroupBy} onChange={setWeekGroupBy} /> : isMarketWeek ? marketExchangeControls : undefined) : chartTitle(mod, tf)}
-            desc={isWeekGrid ? undefined : "Refresh: " + CAD[mod][ti]}
-            action={isWeekGrid ? <WeekBadge weekOffset={weekOffset} setWeekOffset={setWeekOffset} /> : undefined}
+            title={
+              isWeekGrid ? (isSupplyWeek ? <GraphTypeSelect value={weekGroupBy} onChange={setWeekGroupBy} /> : isMarketWeek ? marketExchangeControls : undefined)
+                : isDayFocus ? (isSupplyDay ? <GraphTypeSelect value={dayGroupBy} onChange={setDayGroupBy} /> : undefined)
+                  : chartTitle(mod, tf)
+            }
+            desc={(isWeekGrid || isDayFocus) ? undefined : "Refresh: " + CAD[mod][ti]}
+            action={
+              isWeekGrid ? <WeekBadge weekOffset={weekOffset} setWeekOffset={setWeekOffset} />
+                : isDayFocus ? <DayBadge dayOffset={dayOffset} setDayOffset={setDayOffset} />
+                  : undefined
+            }
           >
             {isWeekGrid ? (
               <WeekSupplyGrid groupBy={isSupplyWeek ? weekGroupBy : "category"} weekOffset={weekOffset} mod={isDemandWeek ? "demand" : "supply"} />
             ) : g.chart ? (
               <>
                 <Legend spec={g.chart} />
-                <div className="mt-3"><Chart spec={g.chart} height={340} onPick={(i) => openDrill(mod, tf, i)} /></div>
+                {/* Day-ahead Demand/Supply dropped everything else on the page (see
+                    isDayFocus above), so their chart gets the freed-up room instead
+                    of sitting at the same fixed height as every other horizon — and
+                    its x-axis shows block number (1–96) instead of time-of-day. */}
+                <div className="mt-3">
+                  <Chart
+                    spec={isDayFocus ? { ...g.chart, x: g.chart.x.map((_, i) => String(i + 1)) } : g.chart}
+                    height={isDayFocus ? 490 : 340} onPick={(i) => openDrill(mod, tf, i)}
+                  />
+                </div>
               </>
             ) : (
               <p className="text-sm text-muted-foreground">{g.sum.sub}</p>
@@ -306,6 +334,49 @@ function WeekBadge({ weekOffset, setWeekOffset }: { weekOffset: number; setWeekO
       <span className="whitespace-nowrap px-2 font-medium">{label}</span>
       <button
         type="button" aria-label="Next week" disabled={weekOffset >= maxOffset} onClick={() => setWeekOffset(Math.min(maxOffset, weekOffset + 1))}
+        className="grid h-7 w-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+      >
+        <ChevronRight className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+/** "22 Oct 2026" for a single day, zero-padded. */
+function dayRangeLabel(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return pad(d.getDate()) + " " + MON[d.getMonth()] + " " + d.getFullYear();
+}
+
+/** The day navigator for Demand's and Supply's Day-ahead pages — a placeholder like
+ *  Supply's Graph Type picker: paging changes this label only, not the chart (same
+ *  "Total supply (DC)" / demand-forecast chart as before). Only ±1 day gets the
+ *  "Yesterday/Today/Tomorrow" label; further out it's just the date. Bounded to the
+ *  real current week (Monday–Sunday around today) — no paging before or after that
+ *  week. */
+function DayBadge({ dayOffset, setDayOffset }: { dayOffset: number; setDayOffset: (n: number) => void }) {
+  const { label, minOffset, maxOffset } = useMemo(() => {
+    const daysSinceMonday = (NOW.getDay() + 6) % 7;
+    const date = new Date(NOW); date.setDate(date.getDate() + dayOffset);
+    const range = dayRangeLabel(date);
+    const relative = dayOffset === 0 ? "Today" : dayOffset === 1 ? "Tomorrow" : dayOffset === -1 ? "Yesterday" : null;
+    return {
+      label: relative ? relative + ", " + range : range,
+      minOffset: -daysSinceMonday,
+      maxOffset: 6 - daysSinceMonday,
+    };
+  }, [dayOffset]);
+  return (
+    <div className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border bg-card p-1 text-[13px]">
+      <button
+        type="button" aria-label="Previous day" disabled={dayOffset <= minOffset} onClick={() => setDayOffset(Math.max(minOffset, dayOffset - 1))}
+        className="grid h-7 w-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+      >
+        <ChevronLeft className="h-3.5 w-3.5" />
+      </button>
+      <span className="whitespace-nowrap px-2 font-medium">{label}</span>
+      <button
+        type="button" aria-label="Next day" disabled={dayOffset >= maxOffset} onClick={() => setDayOffset(Math.min(maxOffset, dayOffset + 1))}
         className="grid h-7 w-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
       >
         <ChevronRight className="h-3.5 w-3.5" />

@@ -43,6 +43,15 @@ export function AppShell() {
   // the Overview tab — scoped to the open module on the module/row pages.
   const showHorizonStrip = isOverview || isModulesIndex || pathname.startsWith("/modules/");
   const isCell = pathname.startsWith("/cell/");
+  // Demand's "Demand Tune up" cell page drops its title/KPI row for a full-bleed
+  // 96-block chart + tuneup panel — same page at every horizon — same reasoning as
+  // the horizon pages above.
+  const cellMod = isCell ? pathname.split("/")[2] : null;
+  const cellTab = (location.search as { t?: string }).t;
+  const isCellTuneup = isCell && cellMod === "demand" && cellTab === "tuneup";
+  // Demand's "Forecast accuracy" cell page gets the same full-bleed dummy-dashboard
+  // treatment — same page at every horizon.
+  const isCellForecastAcc = isCell && cellMod === "demand" && cellTab === "acc";
   // The Planning-horizon page at Month ahead is the UP DC demand calendar, which wants the full window.
   const planTf = (location.search as { h?: string }).h ?? readLocalTf("epm.h");
   const planMod = (location.search as { mod?: string }).mod ?? readLocalTf("epm.mod") ?? "overview";
@@ -50,13 +59,16 @@ export function AppShell() {
   // Week ahead for Supply/Demand renders the same small-multiples day grid as Month ahead,
   // so it claims the full window too.
   const weekGridMod = planMod === "supply" || planMod === "demand" || planMod === "mi";
+  // Day ahead for Supply/Demand drops its title/KPI row for a day-badge control row,
+  // same reasoning as Week ahead above.
+  const dayGridMod = planMod === "supply" || planMod === "demand";
   const isHorizonCalendar = pathname === "/horizon" &&
-    ((planTf === "mo" && monthCalMod) || (planTf === "yr" && (planMod === "overview" || planMod === "demand" || planMod === "supply" || planMod === "mi")) || (planTf === "wk" && weekGridMod));
+    ((planTf === "mo" && monthCalMod) || (planTf === "yr" && (planMod === "overview" || planMod === "demand" || planMod === "supply" || planMod === "mi")) || (planTf === "wk" && weekGridMod) || (planTf === "da" && dayGridMod));
   // The Long-term horizon lays out the full-screen load-profile / box-plot grids and the wide
   // analytics view, so it claims the full window too.
   const isHorizonLongTerm = pathname === "/horizon" && planTf === "lt";
   // Pages that lay out every module or every horizon use the full window; focused pages stay capped.
-  const fullWidth = isCommand || isModulesIndex || pathname === "/snapshot" || pathname.endsWith("/row") || isHorizonCalendar || isHorizonLongTerm;
+  const fullWidth = isCommand || isModulesIndex || pathname === "/snapshot" || pathname.endsWith("/row") || isHorizonCalendar || isHorizonLongTerm || isCellTuneup || isCellForecastAcc;
 
   return (
     <TooltipProvider delayDuration={150}>

@@ -331,7 +331,7 @@ function mkDR(): DRData {
 export const DR = mkDR();
 
 /* ---------- catalog ---------- */
-export type ModId = "demand" | "supply" | "mi" | "opt" | "trade" | "reports" | "analytics";
+export type ModId = "demand" | "supply" | "network" | "mi" | "opt" | "trade" | "reports" | "analytics";
 export type TfId = "dr" | "id" | "da" | "wk" | "mo" | "yr" | "lt";
 
 export const MODS: { id: ModId; name: string; sub: string; about: string; question: string }[] = [
@@ -341,6 +341,9 @@ export const MODS: { id: ModId; name: string; sub: string; about: string; questi
   { id: "supply", name: "Supply Availability", sub: "Declared capacity incl. renewables",
     question: "How much power can we get from our own contracts?",
     about: "Adds up what every contracted plant has declared it can deliver (thermal, central, IPP) plus forecast solar, wind and hydro. Outages reduce the stack." },
+  { id: "network", name: "Network", sub: "GNA & TGNA · down feeders & constraints",
+    question: "How much headroom does the grid have to deliver it?",
+    about: "Tracks General Network Access (GNA) and Temporary GNA (TGNA) corridor limits against actual drawal, plus feeder outages, transmission (ICT) loading and substation/voltage health across the grid." },
   { id: "mi", name: "Market Intelligence", sub: "Price & probable market volume",
     question: "What will power cost on the exchange?",
     about: "Forecasts the exchange clearing price (MCP) with a P10–P90 range and how much volume is likely to clear (MCV), so bids can be sized and priced well." },
@@ -358,7 +361,7 @@ export const MODS: { id: ModId; name: string; sub: string; about: string; questi
     about: "Breaks the cost of power into fixed, own-generation and market components, compares the average ₹/kWh with the regulator-approved (ARR) rate, and flags anomalies." },
 ];
 export const DRNAME: Record<ModId, string> = {
-  demand: "Real-time Demand", supply: "Real-time Supply", opt: "Gap Analysis", trade: "Demand Response",
+  demand: "Real-time Demand", supply: "Real-time Supply", network: "Real-time Network", opt: "Gap Analysis", trade: "Demand Response",
   reports: "DSM Reports", mi: "Real-time Market", analytics: "Real-time Analytics",
 };
 export const TFS: { id: TfId; name: string; short: string; hz: string; span: string }[] = [
@@ -373,6 +376,7 @@ export const TFS: { id: TfId; name: string; short: string; hz: string; span: str
 export const CAD: Record<ModId, string[]> = {
   demand: ["Every 15 min", "Every 15 min", "Daily before 10 am", "Daily", "Weekly", "Monthly", "Yearly"],
   supply: ["Every 15 min", "Every 15 min", "On every change by plants", "Daily", "Weekly", "Monthly", "Yearly"],
+  network: ["Live SCADA (5 min)", "Every 15 min", "Daily SLDC / RLDC", "Weekly outage plan", "Monthly GNA review", "Annual transmission plan", "10-year network plan"],
   opt: ["Every 15 min", "Every 15 min", "On every change by plants", "Daily", "Weekly", "Monthly", "Yearly"],
   trade: ["Real time", "RTM market", "DAM market", "TAM market", "DEEP portal", "DEEP portal", "PPA"],
   reports: ["DSM · every 15 min", "All reports", "All reports", "As required", "As required", "As required", "As required"],

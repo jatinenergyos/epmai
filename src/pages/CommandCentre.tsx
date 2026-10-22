@@ -1,22 +1,21 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, ChevronDown, ChevronRight, Download, GitCompare, Info, OctagonAlert, SquareArrowOutUpRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, GitCompare, SquareArrowOutUpRight } from "lucide-react";
 import { toast } from "sonner";
-import { MODS, TFS, dLabel, modName, nowB, NOW, type ModId, type Status, type TfId } from "@/data/engine";
-import { G, alerts, homeKpis } from "@/data/model";
+import { MODS, TFS, modName, type ModId, type Status, type TfId } from "@/data/engine";
+import { G } from "@/data/model";
 import { SUBS, type SubVal } from "@/data/insights";
 import { Spark } from "@/components/chart/Spark";
 import { VizView } from "@/components/blocks";
-import { Kpis } from "@/components/Kpis";
-import { PageHead, Section } from "@/components/layout";
+import { Section } from "@/components/layout";
 import { Dot, Pill } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import { useHorizon } from "@/lib/horizon";
 import { cn } from "@/lib/utils";
-
-const ALERT_ICON: Record<Status, typeof Info> = { crit: OctagonAlert, warn: AlertTriangle, info: Info, ok: Info };
-const ALERT_EDGE: Record<Status, string> = { crit: "border-l-bad", warn: "border-l-warn", info: "border-l-info", ok: "border-l-ok" };
-const ALERT_TONE: Record<Status, string> = { crit: "text-bad", warn: "text-warn", info: "text-info", ok: "text-ok" };
+// Imports only used by the hidden header/KPI/alerts block (see below):
+// dLabel, nowB, NOW from "@/data/engine"; alerts, homeKpis from "@/data/model";
+// Kpis from "@/components/Kpis"; PageHead from "@/components/layout";
+// AlertTriangle, Info, OctagonAlert from "lucide-react".
 
 /* each cell is its own bordered card so every chart reads as a distinct tile;
    the border + wash are status-coloured so trouble spots pop at a glance */
@@ -34,7 +33,8 @@ export function CommandCentrePage() {
   const { tf } = useHorizon();
   const [expanded, setExpanded] = useState<Set<ModId>>(new Set());
   const [view, setView] = useState<Record<ModId, View>>({} as Record<ModId, View>);
-  const [filter, setFilter] = useState<Filter>("all");
+  // setFilter is unused while the filter-pills UI is hidden (see below) — filter stays "all".
+  const [filter] = useState<Filter>("all");
 
   const isOpen = (m: ModId) => expanded.has(m);
   const viewOf = (m: ModId): View => view[m] ?? "charts";
@@ -46,23 +46,28 @@ export function CommandCentrePage() {
       return next;
     });
 
-  /* tally every module × horizon so the command view leads with "how many need action" */
-  const tally = useMemo(() => {
-    const t: Record<Status, number> = { ok: 0, warn: 0, crit: 0, info: 0 };
-    for (const m of MODS) for (const h of TFS) t[G(m.id, h.id).sum.st]++;
-    return t;
-  }, []);
+  // tally (every module × horizon, how many need action) is unused while the
+  // filter-pills UI is hidden (see below).
+  // const tally = useMemo(() => {
+  //   const t: Record<Status, number> = { ok: 0, warn: 0, crit: 0, info: 0 };
+  //   for (const m of MODS) for (const h of TFS) t[G(m.id, h.id).sum.st]++;
+  //   return t;
+  // }, []);
 
-  const FILTERS: { id: Filter; label: string; n?: number }[] = [
-    { id: "all", label: "Everything" },
-    { id: "crit", label: "Act now", n: tally.crit },
-    { id: "warn", label: "Watch", n: tally.warn },
-    { id: "ok", label: "On track", n: tally.ok },
-  ];
+  // FILTERS is unused while the filter-pills UI is hidden (see below).
+  // const FILTERS: { id: Filter; label: string; n?: number }[] = [
+  //   { id: "all", label: "Everything" },
+  //   { id: "crit", label: "Act now", n: tally.crit },
+  //   { id: "warn", label: "Watch", n: tally.warn },
+  //   { id: "ok", label: "On track", n: tally.ok },
+  // ];
   const dim = (st: Status) => filter !== "all" && st !== filter;
 
   return (
     <>
+      {/* Page header + KPI strip + live-exceptions alerts — hidden so the modules table
+          fits on one screen without scrolling. Kept here (commented out) in case it's
+          wanted back later.
       <PageHead
         crumb={dLabel(NOW) + " · Block " + (nowB + 1) + " of 96"}
         title="Power purchase command centre"
@@ -70,7 +75,6 @@ export function CommandCentrePage() {
 
       <Kpis items={homeKpis()} />
 
-      {/* live exceptions, straight across the top — same read as the mock */}
       <div className="scroll-x mt-3 -mx-4 px-4 sm:-mx-5 sm:px-5">
         <div className="grid auto-cols-[minmax(230px,1fr)] grid-flow-col gap-3 lg:grid-flow-row lg:grid-cols-2 xl:grid-cols-4">
           {alerts().map((a) => {
@@ -88,38 +92,43 @@ export function CommandCentrePage() {
           })}
         </div>
       </div>
+      */}
 
-      <Section className="mt-6" title="Modules × planning horizon"
-        desc="Click a cell to open it on its own page · expand a module in place, or open its complete row · click a column heading for that horizon's snapshot.">
-
-        {/* status filter — isolate where the trouble is, or where things run clean */}
-        <div className="mb-3 flex flex-wrap items-center gap-1.5">
-          {FILTERS.map((f) => (
-            <button key={f.id} onClick={() => setFilter(f.id)}
-              className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                filter === f.id ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:bg-accent")}>
-              {f.id !== "all" && <Dot st={f.id as Status} className={filter === f.id ? "ring-2 ring-primary-foreground/40" : ""} />}
-              {f.label}
-              {f.n != null && <span className={cn("num", filter === f.id ? "text-primary-foreground/80" : "text-muted-foreground")}>{f.n}</span>}
-            </button>
-          ))}
-        </div>
+      <Section>
+        {/* title/desc + status-filter pills hidden so the module boxes get the extra space —
+            kept here (commented out) in case it's wanted back later.
+        <>
+          <h2 className="mb-0.5 text-lg font-semibold leading-snug">Modules × planning horizon</h2>
+          <p className="mb-3 text-[13px] text-muted-foreground">Click a cell to open it on its own page · expand a module in place, or open its complete row · click a column heading for that horizon's snapshot.</p>
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            {FILTERS.map((f) => (
+              <button key={f.id} onClick={() => setFilter(f.id)}
+                className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                  filter === f.id ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:bg-accent")}>
+                {f.id !== "all" && <Dot st={f.id as Status} className={filter === f.id ? "ring-2 ring-primary-foreground/40" : ""} />}
+                {f.label}
+                {f.n != null && <span className={cn("num", filter === f.id ? "text-primary-foreground/80" : "text-muted-foreground")}>{f.n}</span>}
+              </button>
+            ))}
+          </div>
+        </>
+        */}
 
         <div className="scroll-x -mx-4 px-4 sm:-mx-5 sm:px-5">
-          <table className="w-full min-w-[1360px] border-separate border-spacing-0 text-[13px]">
+          <table className="w-full min-w-[1360px] table-fixed border-separate border-spacing-0 text-[13px]">
             <thead>
               <tr>
-                <th className="sticky left-0 z-20 w-[210px] bg-card py-2 pr-3 text-left align-bottom">
+                <th className="sticky left-0 z-20 w-[210px] bg-card py-1 pr-3 text-left align-bottom">
                   <div className="text-xs font-medium text-muted-foreground">Modules</div>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    <Button variant="outline" size="sm" className="h-7 px-2 text-[11px]" onClick={() => setExpanded(new Set(MODS.map((m) => m.id)))}>Expand all</Button>
-                    <Button variant="outline" size="sm" className="h-7 px-2 text-[11px]" onClick={() => setExpanded(new Set())}>Collapse all</Button>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    <Button variant="outline" size="sm" className="h-6 px-2 text-[11px]" onClick={() => setExpanded(new Set(MODS.map((m) => m.id)))}>Expand all</Button>
+                    <Button variant="outline" size="sm" className="h-6 px-2 text-[11px]" onClick={() => setExpanded(new Set())}>Collapse all</Button>
                   </div>
                 </th>
                 {TFS.map((t) => (
-                  <th key={t.id} className={cn("px-1 pb-1 align-bottom", t.id === tf && "rounded-t-md bg-accent")}>
+                  <th key={t.id} className={cn("px-1 pb-0.5 align-bottom", t.id === tf && "rounded-t-md bg-accent")}>
                     <Link to="/snapshot" search={{ h: t.id }} title={"Open snapshot · " + t.name}
-                      className="group block w-full rounded px-1.5 py-1 text-left hover:bg-accent">
+                      className="group block w-full rounded px-1.5 py-0.5 text-left hover:bg-accent">
                       <span className="flex items-center gap-1 text-[13px] font-semibold">
                         {t.name}
                         <SquareArrowOutUpRight className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
@@ -144,7 +153,7 @@ export function CommandCentrePage() {
           </table>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5"><Dot st="ok" />On track</span>
           <span className="flex items-center gap-1.5"><Dot st="warn" />Watch</span>
           <span className="flex items-center gap-1.5"><Dot st="crit" />Act now</span>
@@ -165,24 +174,25 @@ function ModuleRows({ mod, name, sub, subN, open, view, tf, dim, onToggle, onVie
     <>
       {/* summary row — always shows the headline chart for every horizon */}
       <tr className="align-top">
-        <th scope="row" className="sticky left-0 z-10 border-t border-border/70 bg-card py-2.5 pr-3 text-left align-top">
+        <th scope="row" className="sticky left-0 z-10 border-t border-border/70 bg-card py-1 pr-3 text-left align-top">
           <button onClick={onToggle} aria-expanded={open} className="flex w-full items-start gap-1.5 rounded text-left hover:text-primary">
             <span className={cn("mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md transition-colors", open ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}>
               {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
             </span>
             <span className="min-w-0">
-              <span className="block font-semibold leading-snug">{name}</span>
-              <span className="block text-[11px] font-normal leading-snug text-muted-foreground">{sub}</span>
+              <span className="block truncate font-semibold leading-snug">{name}</span>
+              <span className="block truncate text-[11px] font-normal leading-snug text-muted-foreground">{sub}</span>
             </span>
           </button>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <button onClick={onToggle} className="inline-flex items-center gap-1 rounded border bg-card px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground">
-              {open ? "Hide" : "Show"} details · {subN} rows
+          <div className="mt-1 flex flex-nowrap items-center gap-1">
+            <button onClick={onToggle} title={(open ? "Hide" : "Show") + " details · " + subN + " rows"}
+              className="inline-flex shrink-0 items-center gap-1 rounded border bg-card px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground">
+              {open ? "Hide" : "Show"} ({subN})
             </button>
             <Link to="/modules/$moduleId/row" params={{ moduleId: mod }} search={{ m: tf }}
               title={"Open the complete row for " + name}
-              className="inline-flex items-center gap-1 rounded border bg-card px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-accent">
-              <SquareArrowOutUpRight className="h-3 w-3" />Full row
+              className="inline-flex shrink-0 items-center gap-1 rounded border bg-card px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-accent">
+              <SquareArrowOutUpRight className="h-3 w-3" />Row
             </Link>
           </div>
         </th>
@@ -190,23 +200,23 @@ function ModuleRows({ mod, name, sub, subN, open, view, tf, dim, onToggle, onVie
         {TFS.map((t) => {
           const g = G(mod, t.id), s = g.sum, faded = dim(s.st);
           return (
-            <td key={t.id} className={cn("border-t border-border/70 p-1.5 align-top", t.id === tf && "bg-accent/40", faded && "opacity-25")}>
+            <td key={t.id} className={cn("border-t border-border/70 p-1 align-top", t.id === tf && "bg-accent/40", faded && "opacity-25")}>
               <Link to="/cell/$moduleId" params={{ moduleId: mod }} search={{ m: t.id }}
                 title={"Open " + modName(mod, t.id) + " · " + t.name}
-                className={cn("group/cell relative block h-full w-full rounded-lg border p-2 text-left shadow-sm transition-colors", CELL_CARD[s.st])}>
+                className={cn("group/cell relative block h-full w-full rounded-lg border p-1.5 text-left shadow-sm transition-colors", CELL_CARD[s.st])}>
                 <span className="flex items-center gap-1.5">
                   <Dot st={s.st} />
-                  <span className="num truncate text-[15px] font-semibold">{s.big}</span>
+                  <span className="num truncate text-[14px] font-semibold">{s.big}</span>
                   <span className="text-[11px] font-normal text-muted-foreground">{s.u}</span>
                 </span>
                 {g.chart ? (
                   <>
-                    <span className="mt-2 block h-[64px]"><Spark spec={g.chart} height={64} /></span>
-                    <span className="mt-1.5 block truncate text-[12px] text-muted-foreground">{s.sub}</span>
+                    <span className="mt-1 block h-[20px]"><Spark spec={g.chart} height={20} /></span>
+                    <span className="mt-1 block truncate text-[12px] text-muted-foreground">{s.sub}</span>
                     <SquareArrowOutUpRight className="absolute right-1.5 top-1.5 h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover/cell:opacity-100" />
                   </>
                 ) : (
-                  <span className="mt-2 block h-[64px] text-[12px] leading-snug text-muted-foreground">{s.sub}</span>
+                  <span className="mt-1 block h-[20px] text-[12px] leading-snug text-muted-foreground">{s.sub}</span>
                 )}
               </Link>
             </td>

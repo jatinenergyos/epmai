@@ -84,9 +84,33 @@ const GATE: () => Record<TfId, [string, string, Status]> = () => ({
 
 export const SUBS: Record<ModId, Sub[]> = {
   demand: [
-    { id: "acc", n: "Forecast accuracy", d: "How close the forecast is (MAPE)", f: (tf) => {
+    { id: "acc", n: "Demand Forecast", d: "How close the forecast is (MAPE)", f: (tf) => {
       const i = tfIdx(tf), mp = mapeFor(tf);
       return { big: mp.toFixed(1), u: "% MAPE", tag: mp > TGT[i] ? ["High", "warn"] : ["OK", "ok"], viz: meter(mp, TGT[i]), sub: "Target ≤ " + TGT[i] + "% · bias " + (tf === "dr" ? "+1.1" : tf === "id" ? "+0.6" : "+0.3") + "%" };
+    } },
+    { id: "tuneup", n: "Demand Tune up", d: "Model calibration, weather bias & event adjust", f: (tf) => {
+      const d: Record<TfId, SubVal> = {
+        dr: { big: "+18", u: "MW bias adj.", tag: ["Tuned", "ok"], sub: "Real-time telemetry auto-calibration" },
+        id: { big: "98.4", u: "% fidelity", tag: ["Calibrated", "ok"], sub: "Humidity & temp nowcast correction" },
+        da: { big: "±25", u: "MW residual", tag: ["Ready", "ok"], sub: "Ensemble GBM + neural bias tuneup" },
+        wk: { big: "−1.2", u: "% bias trim", sub: "Weekend + festival calendar tuning" },
+        mo: { big: "3", u: "events tuned", sub: "Paddy irrigation & seasonal recalibration" },
+        yr: { big: "5.8", u: "% CAGR tuned", sub: "Economic GDP + electrification factor" },
+        lt: { big: "4", u: "scenarios tuned", sub: "Solar rooftop + heat pump sensitivity" },
+      };
+      return d[tf];
+    } },
+    { id: "mgmt", n: "Demand Management", d: "Peak clipping, valley filling & load shifting", f: (tf) => {
+      const d: Record<TfId, SubVal> = {
+        dr: { big: "310", u: "MW clipped", tag: ["Active", "ok"], sub: "12 feeders on roster · peak relief" },
+        id: { big: "450", u: "MW shifted", tag: ["Scheduled", "ok"], sub: "Agri pump load shifted to solar hrs" },
+        da: { big: "520", u: "MW potential", tag: ["Ready", "ok"], sub: "ToU incentive + industrial roster" },
+        wk: { big: "380", u: "MW avg", sub: "Weekly load curve smoothing" },
+        mo: { big: "14.2", u: "MU shifted", sub: "Monthly peak reduction ~4.1%" },
+        yr: { big: "165", u: "MU annual", sub: "DSM plan: ToU tariff + smart meters" },
+        lt: { big: "850", u: "MW shaving", sub: "EV smart charging + battery DR" },
+      };
+      return d[tf];
     } },
     { id: "zone", n: "Zone-wise demand", d: "Peak split across 5 zones", f: (tf) => {
       const pk = peakMW(tf), z = zoneSplit(pk);
@@ -106,6 +130,18 @@ export const SUBS: Record<ModId, Sub[]> = {
       const re = so.map((v, i) => v + wi[i] + hy[i]);
       return { big: mw(Math.max(...re)), u: "MW max RE", viz: spark([{ v: so, color: "--c-solar" }, { v: wi, color: "--c-wind" }, { v: hy, color: "--c-hydro" }], true), sub: "Solar " + mw(Math.max(...so)) + " · Wind " + mw(Math.max(...wi)) };
     } },
+    { id: "supply_mgmt", n: "Supply management", d: "Reserve margin, spinning reserve & unit commitment", f: (tf) => {
+      const d: Record<TfId, SubVal> = {
+        dr: { big: "420", u: "MW spinning", tag: ["Adequate", "ok"], sub: "Secondary & tertiary reserve margin 8.2%" },
+        id: { big: "650", u: "MW flex", tag: ["Committed", "ok"], sub: "Ramping + hydro governor response ready" },
+        da: { big: "800", u: "MW reserve", tag: ["Scheduled", "ok"], sub: "Technical min dispatch + spinning reserve" },
+        wk: { big: "1,150", u: "MW flex", sub: "Gas peaker + hydro reservoir management" },
+        mo: { big: "1,400", u: "MW banked", sub: "Inter-state banking + bilateral return" },
+        yr: { big: "2,200", u: "MW contracted", sub: "Medium-term PPA & seasonal resource adequacy" },
+        lt: { big: "3,800", u: "MW planned", sub: "BESS + pumped hydro long-term procurement" },
+      };
+      return d[tf];
+    } },
     { id: "conv", n: "Thermal & central (ISGS)", d: "State, ISGS and IPP at peak", f: (tf) => {
       const S = tf === "dr" || is96f(tf) ? (tf === "da" ? TOM : TODAY) : AGG[tf], i = pkI(tf), L = [0, 1, 2].map((k) => S.layers[k][i]);
       return { big: mw(sum(L)), u: "MW", viz: { kind: "stack", parts: [{ n: "State", v: L[0], c: "--c-state" }, { n: "ISGS", v: L[1], c: "--c-isgs" }, { n: "IPP", v: L[2], c: "--c-ipp" }] }, sub: "State " + mw(L[0]) + " · ISGS " + mw(L[1]) + " · IPP " + mw(L[2]) };
@@ -113,6 +149,68 @@ export const SUBS: Record<ModId, Sub[]> = {
     { id: "out", n: "Outages & derating", d: "Forced and planned", f: (tf) => {
       const O = OUT[tf];
       return { big: mw(O[0]), u: "MW out", tag: [O[2] === "crit" ? "Forced" : O[2] === "warn" ? "Planned" : "Plan", O[2]], sub: O[1] };
+    } },
+  ],
+  network: [
+    { id: "gna", n: "GNA", d: "General Network Access limit vs drawal", f: (tf) => {
+      const d: Record<TfId, SubVal> = {
+        dr: { big: "1,080", u: "MW margin", tag: ["Adequate", "ok"], sub: "Approved 9,500 MW · ISTS drawal 8,420 MW" },
+        id: { big: "820", u: "MW min margin", tag: ["88.6% peak", "ok"], sub: "GNA 9,500 MW · peak drawal 8,680 MW" },
+        da: { big: "910", u: "MW margin", tag: ["Cleared", "ok"], sub: "Approved 9,500 MW · scheduled 8,590 MW" },
+        wk: { big: "760", u: "MW margin", sub: "Peak drawal 8,740 MW · zero curtailment" },
+        mo: { big: "620", u: "MW buffer", sub: "Approved 9,500 MW · summer peak expected" },
+        yr: { big: "10,500", u: "MW cap", sub: "Augmented GNA planned with CTU" },
+        lt: { big: "15,000", u: "MW cap", sub: "Long-term transmission capacity addition plan" },
+      };
+      return d[tf];
+    } },
+    { id: "tgna", n: "TGNA", d: "Temporary GNA quantum & corridor access", f: (tf) => {
+      const d: Record<TfId, SubVal> = {
+        dr: { big: "650", u: "MW active", tag: ["Approved", "ok"], sub: "Bilateral 400 MW + RTM corridor 250 MW" },
+        id: { big: "600", u: "MW approved", tag: ["Active", "ok"], sub: "Peak evening 18:00–23:00 corridor reserved" },
+        da: { big: "750", u: "MW applied", tag: ["Cleared", "ok"], sub: "Bilateral 450 MW + DAM collective 300 MW" },
+        wk: { big: "850", u: "MW avg", sub: "Weekly TAM corridor reservation" },
+        mo: { big: "1,200", u: "MW peak", sub: "DEEP portal month-ahead import corridor" },
+        yr: { big: "1,500", u: "MW seasonal", sub: "Paddy season temporary allocation" },
+        lt: { big: "2,500", u: "MW contracted", sub: "10-year medium/long-term open access" },
+      };
+      return d[tf];
+    } },
+    { id: "feeders", n: "Down feeders", d: "11kV, 33kV, 66kV tripping & restoration", f: (tf) => {
+      const d: Record<TfId, SubVal> = {
+        dr: { big: "8", u: "feeders down", tag: ["99.4% avail", "warn"], sub: "6 roster · 2 breakdown · avg ETA 42 min" },
+        id: { big: "11", u: "feeders out", tag: ["Tripped", "crit"], sub: "8 agri roster · 3 breakdown (North/West)" },
+        da: { big: "7", u: "scheduled", tag: ["Maintenance", "warn"], sub: "Planned maintenance shutdowns approved" },
+        wk: { big: "12", u: "daily avg", sub: "SAIFI 0.32 interruptions/consumer" },
+        mo: { big: "99.5", u: "% uptime", sub: "Monthly feeder availability across 1,240 feeders" },
+        yr: { big: "99.6", u: "% reliability", sub: "Annual feeder reliability index (SAIDI 48 min)" },
+        lt: { big: "99.7", u: "% reliability", sub: "10-year grid modernisation target" },
+      };
+      return d[tf];
+    } },
+    { id: "transmission", n: "Transmission constraints", d: "ICT loading & N-1 corridor security", f: (tf) => {
+      const d: Record<TfId, SubVal> = {
+        dr: { big: "84", u: "% max ICT load", tag: ["N-1 OK", "ok"], sub: "Sarojini Nagar 400kV ICT-2 · Panki 78%" },
+        id: { big: "86", u: "% peak ICT", tag: ["Normal", "ok"], sub: "Zero transmission lines congested" },
+        da: { big: "0", u: "corridor blocks", tag: ["No congest.", "ok"], sub: "ISTS corridor headroom > 1,200 MW" },
+        wk: { big: "1", u: "planned outage", sub: "400kV Fatehpur line maint. (3 days)" },
+        mo: { big: "2", u: "ICT upgrades", sub: "Additional 500 MVA ICT commissioning" },
+        yr: { big: "99.8", u: "% availability", sub: "ISTS transmission system availability" },
+        lt: { big: "99.9", u: "% availability", sub: "New 765kV corridor planned by FY32" },
+      };
+      return d[tf];
+    } },
+    { id: "substations", n: "Substations & voltages", d: "400kV, 220kV and 132kV grid health", f: (tf) => {
+      const d: Record<TfId, SubVal> = {
+        dr: { big: "402", u: "kV bus voltage", tag: ["Statutory OK", "ok"], sub: "Normal 380–420 kV · 48 substations healthy" },
+        id: { big: "99.8", u: "% health", tag: ["Stable", "ok"], sub: "MVAR reactive power balanced with capacitor banks" },
+        da: { big: "400", u: "kV nominal", tag: ["Ready", "ok"], sub: "SLDC scheduled bus voltage profile compliant" },
+        wk: { big: "0", u: "voltage breaches", sub: "High/low voltage alarms zero across grid" },
+        mo: { big: "48", u: "substations", sub: "100% telemetry online on SCADA" },
+        yr: { big: "12", u: "substations added", sub: "State STU network expansion plan" },
+        lt: { big: "65", u: "substations", sub: "Long-term STU capacity expansion" },
+      };
+      return d[tf];
     } },
   ],
   opt: [
@@ -247,6 +345,24 @@ export function det(mod: ModId, tf: TfId, id: string): Block | null {
         ["STATE TPS-1 U1", "450", tag("Planned", "warn"), dLabel(addDays(NOW, 3)) + " → " + dLabel(addDays(NOW, 5))],
         ["BARH U2 (share)", "180", tag("Planned", "warn"), dLabel(addDays(NOW, 21)) + " → " + dLabel(addDays(NOW, 26))],
         ["FARAKKA U4", "120", tag("Partial", "info"), "Till today 20:00"]]);
+    case "network.gna":
+      return tbl(["Item", "MW"], [["Approved GNA limit", "9,500"], ["ISTS scheduled drawal", "8,420"], ["Headroom margin", "1,080"], ["Augmented GNA (planned)", "10,500"]]);
+    case "network.tgna":
+      return tbl(["Corridor", "MW"], [["Bilateral", "400"], ["RTM corridor", "250"], ["DAM collective", "300"], ["Total TGNA active", "650"]]);
+    case "network.feeders":
+      return tbl(["Feeder", "Zone", "Category", "Status"], [
+        ["11kV Rampur Agri-1", "North", "Agri roster", tag("Curtailed", "warn")],
+        ["11kV Kheri Agri-3", "East", "Agri roster", tag("Curtailed", "warn")],
+        ["33kV Ind. Estate-4", "West", "C&I contract", tag("Curtailed", "warn")],
+        ["11kV Bela Agri-5", "Central", "Agri roster", tag("Standby", "ok")],
+        ["11kV Nagar C&I-2", "North", "C&I contract", tag("Standby", "ok")]]);
+    case "network.transmission":
+      return tbl(["Corridor", "Loading", "Status"], [
+        ["Sarojini Nagar 400kV ICT-2", "84%", tag("N-1 OK", "ok")],
+        ["Panki 400kV ICT", "78%", tag("N-1 OK", "ok")],
+        ["Fatehpur 400kV line", "—", tag("Planned maint.", "warn")]]);
+    case "network.substations":
+      return tbl(["Voltage class", "Bus voltage", "Status"], [["400 kV", "402 kV", tag("Statutory OK", "ok")], ["220 kV", "218 kV", tag("Statutory OK", "ok")], ["132 kV", "131 kV", tag("Statutory OK", "ok")]]);
     case "opt.mo": {
       const { so, sched } = meritOn(tf);
       return tbl(["Plant", "VC ₹/MWh", "Scheduled (MW)", "Status"], so.map((p, k) => [p.name, inr(p.vc), mw(sched[k]), sched[k] >= p.dc - 1 ? tag("Full", "ok") : sched[k] > 0 ? tag("Partial", "warn") : tag("Off bar", "info")]));
@@ -364,7 +480,7 @@ export const LENSES: { id: LensId; name: string; hint: string }[] = [
   { id: "ana", name: "Analyse", hint: "Why it's happening" },
 ];
 const LENS_REPORTS: Record<ModId, string[]> = {
-  demand: ["dp", "sh", "re"], supply: ["sp", "po", "plf", "re"], opt: ["op", "sp", "po"], trade: ["ta", "tp", "op"],
+  demand: ["dp", "sh", "re"], supply: ["sp", "po", "plf", "re"], network: ["sp", "po"], opt: ["op", "sp", "po"], trade: ["ta", "tp", "op"],
   reports: ["dp", "ta", "tp", "sh"], analytics: ["dp", "tp", "plf", "re"], mi: ["ta", "tp", "op"],
 };
 export function lensLine(l: LensId, tf: TfId, mod: ModId): string {
@@ -390,6 +506,7 @@ export function lensLine(l: LensId, tf: TfId, mod: ModId): string {
   }
   const dec: Partial<Record<ModId, string>> = {
     supply: ["Request 120 MW hydro ramp-up now", "Revise DC: TPS-2 U3 −250 MW from 14:30", "Confirm TPS-2 U3 return at 10:00 tomorrow", "Shift TPS-1 U1 maintenance to Sunday", "Defer BARH U2 overhaul to a surplus week", "Plan unit overhauls in the Nov–Dec surplus", "Add 1,000 MW solar + 500 MW BESS by " + LT.x[4]][i],
+    network: ["Restore 2 breakdown feeders on priority", "Apply for 250 MW TGNA for the evening peak", "Clear 7 scheduled maintenance feeders", "Plan Fatehpur line outage for the surplus window", "Commission 2 ICT upgrades before summer", "File augmented GNA request with CTU", "Plan 765kV corridor addition by FY32"][i],
     opt: tf === "dr" ? "Close " + mw(Math.max(0, -DR.gap[DR.nowI])) + " MW gap with DR + RTM" : recs("opt", tf)[is96f(tf) ? 2 : 1].t,
     trade: recs("trade", tf)[0].t, mi: recs("trade", tf)[0].t,
     analytics: ["Tighten DR trigger to 120 MW", "Cut RTM exposure 18:00–20:00", "Shift 300 MW buy into solar hours", "Rebalance TAM vs DAM mix", "Renegotiate IPP-B fixed cost", "File ARR true-up for cost variance", "Exit high-cost PPAs at expiry"][i],
@@ -397,6 +514,7 @@ export function lensLine(l: LensId, tf: TfId, mod: ModId): string {
   };
   const ana: Partial<Record<ModId, string>> = {
     supply: ["Solar ramp −180 MW in next 30 min (cloud)", "Solar forecast error ±6.2% · cloud cover", "Wind forecast ±9% · tomorrow's weather model", "TPS-2 trip risk 18% next week", "Hydro inflow +12% vs normal", "Monsoon hydro + wind upside ~900 MW", "RE share reaches ~45% by " + LT.x[9]][i],
+    network: ["ICT loading 84% · within N-1 limit", "11 feeders tripped · agri roster + breakdowns", "GNA margin tightest in the evening peak", "Weekly feeder SAIFI 0.32 interruptions/consumer", "Monthly feeder uptime 99.5%", "Annual GNA margin thinnest in summer", "10-year grid plan targets 99.7% reliability"][i],
     opt: ["Deviation risk in 3 of next 12 slots", "Shadow price ₹" + inr(TODAY.rtm[nowB]) + "/MWh now", "MILP solve 0.8 s · 96 blocks · 12 plants", "Reserve margin thin on " + WK.tx![maxI(WK.tbuy!)], "Optimal hedge ratio ~70% (VaR)", "Deficit concentrated Apr–Jul", "Least-cost mix: RE + storage"][i],
     trade: ["DR cheaper than RTM above ₹9,000", "RTM price spike risk around 19:30", "DAM price MAPE 8.2% · evening cap risk", "TAM vs DAM spread ₹420/MWh", "DEEP tariffs trending −3%", "Summer ₹10,000 cap risk in May–Jun", "PPA tariffs falling ~2.3%/yr"][i],
     mi: ["RTM clearing tight in evening slots", "RTM price spike risk around 19:30", "Solar-hour sell bids keep midday cheap", "TAM vs DAM spread ₹420/MWh", "DEEP tariffs trending −3%", "Summer ₹10,000 cap risk in May–Jun", "Exchange volume growing ~8.5%/yr"][i],
@@ -424,6 +542,11 @@ export function contextBlocks(mod: ModId, tf: TfId): Block[] {
   if (mod === "supply")
     return [tbl(["Plant", "Type", "DC (MW)", "Status"], PLANTS.map((p) => [p.name, p.cat, String(p.name === "STATE TPS-2" && is96 ? 650 : p.dc),
       p.name === "STATE TPS-2" && (is96 || tf === "wk") ? tag("Outage 250", "crit") : p.name === "STATE TPS-1" && (tf === "wk" || tf === "mo") ? tag("Planned", "warn") : tag("Available", "ok")]), "Plant availability & outages")];
+  if (mod === "network")
+    return [
+      tbl(["Access limit", "MW"], [["Approved GNA", "9,500"], ["Temporary GNA (TGNA) active", "650"], ["Headroom margin", "1,080"]], "Network access limits"),
+      tbl(["Down feeder", "Zone", "Status"], [["11kV Rampur Agri-1", "North", tag("Curtailed", "warn")], ["11kV Kheri Agri-3", "East", tag("Curtailed", "warn")], ["33kV Ind. Estate-4", "West", tag("Curtailed", "warn")]], "Active feeder outages"),
+    ];
   if (mod === "opt") {
     const ap = avg(D.price);
     return [{ kind: "hbars", title: "Merit order (variable cost)", note: "Cheapest runs first. Red bars cost more than the average market price (₹" + inr(ap) + "/MWh) and are replaced by market purchase.", items: [...PLANTS].sort((a, b) => a.vc - b.vc).map((p) => ({ n: p.name, v: p.vc, lab: "₹" + inr(p.vc), c: p.vc > ap ? "--neg" : "--c-isgs" })) }];
@@ -453,7 +576,7 @@ export function contextBlocks(mod: ModId, tf: TfId): Block[] {
   return [];
 }
 export const contextTitle: Record<ModId, string> = {
-  demand: "Inputs behind the forecast", supply: "Plants and outages", opt: "How the merit order works", trade: "Market desk",
+  demand: "Inputs behind the forecast", supply: "Plants and outages", network: "Grid access and feeder health", opt: "How the merit order works", trade: "Market desk",
   mi: "Market snapshot", analytics: "Load shape and cost insights", reports: "",
 };
 
@@ -481,6 +604,13 @@ export function drill(mod: ModId, tf: TfId, i: number): Drill {
     if (mod === "trade" || mod === "opt") {
       B.push({ kind: "stats", items: [stat("Gap", mw(DR.gap[i]) + " MW"), stat("DR target", mw(DR.tgt[i]) + " MW"), stat("Achieved", isN(DR.ach[i]) ? mw(DR.ach[i] as number) + " MW" : "planned")] });
       B.push(tbl(["Feeder", "Zone", "Class", "Load", "Status"], ["11kV Rampur Agri-1", "11kV Kheri Agri-3", "11kV Sonpur Agri-2", "33kV Ind. Estate-4", "11kV Bela Agri-5", "11kV Nagar C&I-2"].map((f, k) => [f, ["North", "East", "South", "West", "Central", "North"][k], k === 3 || k === 5 ? "C&I (contract)" : "Agri (roster)", [42, 38, 35, 60, 31, 28][k] + " MW", k < 4 ? tag("Curtailed", "ok") : tag("Standby", "info")]), "Feeders on demand response"));
+    } else if (mod === "network") {
+      const GNA = 9500, drawal = nn(DR.act[i]), margin = GNA - drawal;
+      B.push({ kind: "stats", items: [stat("Drawal", mw(drawal) + " MW"), stat("GNA limit", mw(GNA) + " MW"), stat("Margin", mw(margin) + " MW"), stat("Down feeders", "8")] });
+      B.push(tbl(["Feeder", "Zone", "Voltage", "Reason", "Status"], [
+        ["33kV Industrial Estate-4", "North", "33 kV", "Cable fault", tag("Forced", "crit")],
+        ["11kV Rampur Agri Roster", "Central", "11 kV", "Agri roster", tag("Scheduled", "warn")],
+        ["11kV Kheri Agri-3", "East", "11 kV", "Breakdown", tag("Forced", "crit")]], "Feeder outage & maintenance telemetry"));
     } else {
       const v = DR.act[i] ?? DR.fc[i];
       B.push({ kind: "stats", items: [stat("Actual", isN(DR.act[i]) ? mw(DR.act[i] as number) + " MW" : "—"), stat("Forecast", mw(DR.fc[i]) + " MW"), stat("Schedule", mw(DR.sch[i]) + " MW"), stat("Deviation", isN(DR.dev[i]) ? mw(DR.dev[i] as number) + " MW" : "—")] });
@@ -502,6 +632,11 @@ export function drill(mod: ModId, tf: TfId, i: number): Drill {
     B.push({ kind: "hbars", title: "By source", unit: "MW", items: L.map((l) => ({ n: l.name, v: l.v[i], c: l.color })) });
     if (is96) B.push(tbl(["Plant", "Type", "DC (MW)", ""], [...PLANTS.map((p) => [p.name, p.cat, String(D.dc[p.name][i]), D.dc[p.name][i] < p.dc ? tag("−" + (p.dc - D.dc[p.name][i]) + " outage", "crit") : ""] as Cell[]),
       ["Solar (state + ISTS)", "RE", String(D.solar[i]), ""], ["Wind", "RE", String(D.wind[i]), ""], ["Hydro", "RE", String(D.hydro[i]), ""]], "Plant-wise declared capacity"));
+  } else if (mod === "network") {
+    const drawal = c.lines![0].v[i] as number, gna = c.lines![1].v[i] as number, margin = gna - drawal;
+    B.push({ kind: "stats", items: [stat("Drawal", mw(drawal) + " MW"), stat("GNA limit", mw(gna) + " MW"), stat("Margin", mw(margin) + " MW"), stat("Down feeders", is96 ? "8" : "7")] });
+    B.push(tbl(["Access limit", "MW"], [["Approved GNA", inr(gna)], ["TGNA active", "650"], ["Headroom margin", inr(margin)]], "Network access limits"));
+    B.push(tbl(["Down feeder", "Zone", "Status"], [["11kV Rampur Agri-1", "North", tag("Curtailed", "warn")], ["11kV Kheri Agri-3", "East", tag("Curtailed", "warn")], ["33kV Ind. Estate-4", "West", tag("Curtailed", "warn")]], "Active feeder outages"));
   } else if (mod === "opt") {
     if (is96) {
       const o = D.o, p = (tf === "id" ? D.rtm : D.price)[i];
