@@ -4,6 +4,8 @@ import { CAD, isMod, modName, tfIdx, tfName } from "@/data/engine";
 import { G, statusText } from "@/data/model";
 import { SUBS, det } from "@/data/insights";
 import { Chart, Legend } from "@/components/chart/Chart";
+import { DemandForecastWeekNav, ForecastAccuracyDashboard, FreeDateNav, TomorrowLabel } from "@/components/ForecastAccuracyDashboard";
+import { DemandTuneupPanel } from "@/components/DemandTuneupPanel";
 import { BlockView, VizView } from "@/components/blocks";
 import { Kpis } from "@/components/Kpis";
 import { PageHead, Section } from "@/components/layout";
@@ -25,24 +27,48 @@ export function CellPage() {
   const mod = moduleId, g = G(mod, tf), s = g.sum, ti = tfIdx(tf);
   const subs = SUBS[mod];
   const activeSub = subs.find((S) => S.id === tab);
+ 
+  const isDashboard = mod === "demand" && activeSub?.id === "acc";
+  
+  const isTuneupPanel = mod === "demand" && activeSub?.id === "tuneup";
 
   return (
     <>
-      <PageHead
-        crumb={<><Link to="/" search={keepH} className="hover:text-foreground hover:underline">Command centre</Link> / Cell</>}
-        title={<>{modName(mod, tf)} <span className="font-normal text-muted-foreground">· {tfName(tf)}</span></>}
-        after={<Pill st={s.st}>{statusText[s.st]}</Pill>}
-      >
-        <dl className="flex flex-wrap gap-x-6 gap-y-1 pt-1 text-[13px]">
-          <div className="flex gap-1.5"><dt className="text-muted-foreground">Headline</dt><dd className="num">{s.big} {s.u}</dd></div>
-          <div className="flex gap-1.5"><dt className="text-muted-foreground">Refresh</dt><dd>{CAD[mod][ti]}</dd></div>
-        </dl>
-      </PageHead>
+      {!(isDashboard || isTuneupPanel) && (
+        <PageHead
+          crumb={<><Link to="/" search={keepH} className="hover:text-foreground hover:underline">Command centre</Link> / Cell</>}
+          title={<>{modName(mod, tf)} <span className="font-normal text-muted-foreground">· {tfName(tf)}</span></>}
+          after={<Pill st={s.st}>{statusText[s.st]}</Pill>}
+        >
+          <dl className="flex flex-wrap gap-x-6 gap-y-1 pt-1 text-[13px]">
+            <div className="flex gap-1.5"><dt className="text-muted-foreground">Headline</dt><dd className="num">{s.big} {s.u}</dd></div>
+            <div className="flex gap-1.5"><dt className="text-muted-foreground">Refresh</dt><dd>{CAD[mod][ti]}</dd></div>
+          </dl>
+        </PageHead>
+      )}
 
-      <div className="mt-6">
+      <div className={(isDashboard || isTuneupPanel) ? "" : "mt-6"}>
         {activeSub ? (
           /* one of the module's detail metrics */
           (() => {
+            if (isTuneupPanel) {
+              
+              const tuneupNav = tf === "da" ? <TomorrowLabel /> : tf === "id" ? undefined : <FreeDateNav />;
+              return (
+                <Section title={activeSub.n} desc={activeSub.d} action={tuneupNav}>
+                  <DemandTuneupPanel tf={tf} />
+                </Section>
+              );
+            }
+            if (isDashboard) {
+             
+              const forecastNav = tf === "da" ? <DemandForecastWeekNav /> : tf === "id" ? undefined : <FreeDateNav />;
+              return (
+                <Section title={activeSub.n} desc={activeSub.d} action={forecastNav}>
+                  <ForecastAccuracyDashboard tf={tf} />
+                </Section>
+              );
+            }
             const v = activeSub.f(tf), d = det(mod, tf, activeSub.id);
             return (
               <Section title={activeSub.n} desc={activeSub.d}

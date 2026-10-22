@@ -28,6 +28,7 @@ export const chartTitle = (m: ModId, tf: TfId) =>
   ({
     demand: tf === "dr" ? "Actual vs forecast: last 2 hours and next hour" : "Demand forecast with its likely range",
     supply: tf === "dr" ? "Available vs scheduled vs actual drawal" : "Supply stack by source vs demand",
+    network: "Network drawal vs GNA limit",
     opt: tf === "dr" ? "Real-time gap vs schedule" : "Gap after merit-order optimisation",
     trade: tf === "dr" ? "Demand response: target vs achieved" : MARKET[tf] + " bid volume and price",
     mi: (tf === "dr" || tf === "id" ? "RTM" : tf === "da" ? "DAM" : "Exchange") + " price forecast and probable market volume",

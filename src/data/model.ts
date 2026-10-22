@@ -35,6 +35,7 @@ export function G(mod: ModId, tf: TfId): ModData {
   else if (tf === "dr") r = gDR(mod);
   else if (mod === "demand") r = gDemand(tf, is96);
   else if (mod === "supply") r = gSupply(tf, is96);
+  else if (mod === "network") r = gNetwork(tf, is96);
   else if (mod === "opt") r = gOpt(tf, is96);
   else if (mod === "trade") r = gTrade(tf, is96);
   else r = { sum: { big: is96 ? "9" : "On demand", u: is96 ? "reports" : "", sub: is96 ? "Auto-generated" : "Generated as required", st: "ok" } };
@@ -99,6 +100,34 @@ function gSupply(tf: TfId, is96: boolean): ModData {
     ],
     rows: layers.map((l) => ({ n: l.name, v: l.v as Series })).concat([{ n: "Total available", v: D.avail }, { n: "Demand", v: dem }]),
     sum: { big: mw(D.avail[pk]), u: "MW available", sub: "RE " + reSh.toFixed(0) + "% at peak" + (is96 ? " · 1 outage" : ""), st: is96 ? "warn" : "ok" },
+  };
+}
+
+/** Network: General Network Access (GNA) headroom — how much margin is left between
+ *  the approved grid-access limit and actual drawal (our own demand, from the
+ *  network's point of view) — plus a down-feeders KPI. Reuses the demand series
+ *  rather than a separate network dataset, since drawal from the grid tracks demand. */
+function gNetwork(tf: TfId, is96: boolean): ModData {
+  const dem = is96 ? dayOf(tf).dem : AGG[tf].F;
+  // The approved GNA limit is pegged just under this horizon's own peak drawal (97%
+  // of it) — the grid is sized for normal load with only a little slack, so the
+  // tightest block (the peak) runs slightly over, same shape as a real grid's margin
+  // regardless of how big the horizon's absolute demand numbers are.
+  const GNA = Math.round((Math.max(...dem) * 0.97) / 100) * 100;
+  const pk = maxI(dem), margin = dem.map((v) => GNA - v), mn = minI(margin);
+  const x = is96 ? BL : AGG[tf].x, xt = is96 ? BLR : AGG[tf].xt;
+  const gnaLine = dem.map(() => GNA);
+  const feeders = is96 ? (tf === "da" ? "7" : "8") : tf === "wk" ? "12" : "7";
+  return {
+    chart: { x, xt, lines: [{ name: "Drawal", v: dem, color: "--demand", w: 2 }, { name: "GNA limit", v: gnaLine, color: "--muted", w: 1.5, dash: "4 3" }], unit: "MW", yl: "Drawal vs GNA (MW)", now: tf === "id" ? nowB : null, zero: true },
+    kpis: [
+      { l: "GNA limit", v: mw(GNA), u: "MW" },
+      { l: "Peak drawal", v: mw(dem[pk]), u: "MW", s: xt[pk] },
+      { l: "Tightest margin", v: mw(margin[mn]), u: "MW", s: xt[mn], st: margin[mn] < 0 ? "crit" : margin[mn] < 500 ? "warn" : "ok" },
+      { l: "Down feeders", v: feeders, u: "feeders", st: is96 ? "warn" : "ok" },
+    ],
+    rows: [{ n: "Drawal", v: dem }, { n: "GNA limit", v: gnaLine }, { n: "Margin", v: margin, sign: true }],
+    sum: { big: mw(margin[mn]), u: "MW margin", sub: "GNA " + mw(GNA) + " MW · peak " + mw(dem[pk]) + " MW", st: margin[mn] < 0 ? "crit" : margin[mn] < 500 ? "warn" : "ok" },
   };
 }
 
@@ -199,6 +228,20 @@ function gDR(mod: ModId): ModData {
       rows: [{ n: "Available", v: DR.av }, { n: "Scheduled", v: DR.sch }, { n: "Actual", v: DR.act }],
       sum: { big: mw(DR.av[n]), u: "MW available", sub: "Headroom " + mw(DR.av[n] - a) + " MW", st: DR.av[n] - a < 0 ? "crit" : "ok" },
     };
+  if (mod === "network") {
+    const peak = Math.max(a, ...DR.act.filter(isN));
+    const GNA = Math.round((peak * 0.97) / 100) * 100, margin = GNA - a;
+    return {
+      chart: { ...X, lines: [{ name: "Drawal (SCADA)", v: DR.act, color: "--ink", w: 2.2 }, { name: "GNA limit", v: DR.act.map(() => GNA), color: "--muted", w: 1.5, dash: "4 3" }], yl: "MW" },
+      kpis: [
+        { l: "GNA limit", v: mw(GNA), u: "MW" }, { l: "ISTS drawal", v: mw(a), u: "MW" },
+        { l: "Margin", v: mw(margin), u: "MW", st: margin < 0 ? "crit" : margin < 500 ? "warn" : "ok" },
+        { l: "Down feeders", v: "8", u: "feeders", s: "84% ICT load", st: "warn" },
+      ],
+      rows: [{ n: "Drawal", v: DR.act }, { n: "GNA limit", v: DR.act.map(() => GNA) }],
+      sum: { big: mw(margin), u: "MW margin", sub: "GNA " + mw(GNA) + " MW · 8 down feeders · 84% ICT load", st: margin < 0 ? "crit" : margin < 500 ? "warn" : "ok" },
+    };
+  }
   if (mod === "opt")
     return {
       chart: { ...X, bars: { name: "Gap = schedule − actual", v: DR.gap, pos: "--pos", neg: "--neg" }, lines: [{ name: "Actual demand", v: DR.act, color: "--accent", w: 2, y2: true }], yl: "Gap (MW)", y2l: "Demand (MW)", zero: true },
