@@ -1,4 +1,8 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+// import { useDispatch, useSelector } from "react-redux";
+import { useAppDispatch, useAppSelector } from "../store/hooks";
+// import type { AppDispatch, RootState } from "../store/slice/demandApiSlice"; // Adjust path to your store
+import { fetchDemandForecast, fetchWeekDemandForecast } from "@/store/slice/demandApiSlice";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { CAD, MODS, MON, NOW, TFS, modName, tfIdx, tfName } from "@/data/engine";
@@ -21,43 +25,146 @@ import { ReportLibrary } from "./Reports";
 
 const MARKETS = ["DAM", "RTM", "GDAM", "HPDAM"];
 const EXCHANGES = ["IEX", "PXIL", "HPX"];
+// Helper to format Date -> YYYY-MM-DD
+function formatIso(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
-/** The selected module (module strip) at the selected horizon (the "Planning horizon" header
- *  dropdown) — one view, not every horizon stacked. Module ruler picks the module; the planning
- *  horizon picks which single horizon to show. */
+function getMonday(d: Date): Date {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = (day + 6) % 7; // Monday = 0, Sunday = 6
+  date.setDate(date.getDate() - diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function getWeekRange(offset: number) {
+  const currentMonday = getMonday(new Date()); // Anchors to real current week
+  const monday = new Date(currentMonday);
+  monday.setDate(monday.getDate() + offset * 7);
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  return {
+    from_date: formatIso(monday),
+    to_date: formatIso(sunday),
+    mondayDate: monday,
+  };
+}
+
+
+
 export function HorizonPage() {
+  const dispatch = useAppDispatch();
   const { mod } = useHorizonModule();
   const { tf } = useHorizon();
   const { openDrill } = usePanels();
   const ti = tfIdx(tf);
 
-  // Month ahead on the Planning-horizon page is the UP DC demand calendar, scoped to the focused
-  // module: the Demand data lives under Demand, supply data under Supply, surplus/deficit under
-  // Optimization; the all-module Overview keeps every mode.
+  const { data: demandData, loading: demandLoading, weekData, weekLoading, } = useAppSelector((state) => state.demand);
+
+  const [weekOffset, setWeekOffset] = useState(0);
+  // useEffect(() => {
+  //   if (mod === "demand") {
+  //     dispatch(
+  //       fetchDemandForecast({
+  //         data_id: 102130,
+  //         from_date: "2026-11-01",
+  //         to_date: "2026-11-30",
+  //         location_id: 10030,
+  //         forcasted_by: "System",
+  //         table: "daily",
+  //       })
+  //     );
+  //   }
+  // }, [dispatch, mod, tf]);
+  useEffect(() => {
+    if (mod === "demand" && tf === "mo") {
+      dispatch(fetchDemandForecast({
+        data_id: 102130,
+        from_date: "2026-11-01",
+        to_date: "2026-11-30",
+        location_id: 10030,
+        forcasted_by: "System",
+        table: "daily",
+      }));
+    }
+  }, [dispatch, mod, tf]);
+
+  useEffect(() => {
+    if (mod === "demand" && tf === "wk") {
+      const { from_date, to_date } = getWeekRange(weekOffset);
+      dispatch(
+        fetchWeekDemandForecast({
+          data_id: 102120,
+          from_date,
+          to_date,
+          location_id: 10030,
+          forcasted_by: "System",
+          table: "daily",
+        })
+      );
+    }
+  }, [dispatch, mod, tf, weekOffset]);
+
+
+
+
+
   const calSet = CAL_SETS[mod];
   const monthBarSlotRef = useRef<HTMLDivElement>(null);
   const [weekGroupBy, setWeekGroupBy] = useState<GroupBy>("category");
-  const [weekOffset, setWeekOffset] = useState(0);
   const [market, setMarket] = useState(MARKETS[0]);
   const [exchange, setExchange] = useState(EXCHANGES[0]);
   const [dayGroupBy, setDayGroupBy] = useState<GroupBy>("category");
   const [dayOffset, setDayOffset] = useState(0);
   if (tf === "mo" && calSet) {
-    // Demand's and Supply's month-bar (prev/next + month select) renders up here,
-    // top right, via a portal — see `monthBarPortalRef` on <DemandCalendar> — and
-    // their title/KPI row is dropped, since the calendar's own controls and day
-    // cells already carry that context. Overview and Optimization keep both.
     const isFocusedMonth = mod === "demand" || mod === "supply" || mod === "mi";
     const liftMonthBar = isFocusedMonth;
-    // Market Intelligence reuses Supply's "Total supply (DC)" series (same day grid,
-    // same data) with Market/Exchange pickers in place of the plant/category select —
-    // a placeholder like Long-term's Graph Type: they label the view, not the data.
     const isMarket = mod === "mi";
+    // return (
+    //   <>
+    //     {/* "dc-root" on the portal target re-establishes DemandCalendar's scoped CSS
+    //         vars/selectors for the lifted month bar — a portal moves DOM, not the React
+    //         tree, so without this class it would fall back to unstyled browser defaults. */}
+    //     <PageHead
+    //       title={isFocusedMonth ? null : <>{calSet.label} <span className="font-normal text-muted-foreground">· {tfName(tf)}</span></>}
+    //       after={liftMonthBar ? <div ref={monthBarSlotRef} className="dc-root flex-1" /> : undefined}
+    //     />
+    //     <div className="mt-5">
+    //       <DemandCalendar
+    //         key={mod}
+    //         section="month" modes={calSet.modes} defaultMode={calSet.def}
+    //         monthBarPortalRef={liftMonthBar ? monthBarSlotRef : undefined} hideKpis={isFocusedMonth}
+    //         hideSrcSelect={isMarket}
+    //         extraControls={isMarket ? (
+    //           <>
+    //             <div className="dc-seg" role="group" aria-label="Market">
+    //               <label className="dc-note" style={{ margin: 0, padding: "0 8px", alignSelf: "center" }}>Market</label>
+    //               <select aria-label="Market" value={market} onChange={(e) => setMarket(e.target.value)}>
+    //                 {MARKETS.map((x) => <option key={x} value={x}>{x}</option>)}
+    //               </select>
+    //             </div>
+    //             <div className="dc-seg" role="group" aria-label="Exchange">
+    //               <label className="dc-note" style={{ margin: 0, padding: "0 8px", alignSelf: "center" }}>Exchange</label>
+    //               <select aria-label="Exchange" value={exchange} onChange={(e) => setExchange(e.target.value)}>
+    //                 {EXCHANGES.map((x) => <option key={x} value={x}>{x}</option>)}
+    //               </select>
+    //             </div>
+    //           </>
+    //         ) : undefined}
+    //       />
+    //     </div>
+    //   </>
+    // );
+
     return (
       <>
-        {/* "dc-root" on the portal target re-establishes DemandCalendar's scoped CSS
-            vars/selectors for the lifted month bar — a portal moves DOM, not the React
-            tree, so without this class it would fall back to unstyled browser defaults. */}
         <PageHead
           title={isFocusedMonth ? null : <>{calSet.label} <span className="font-normal text-muted-foreground">· {tfName(tf)}</span></>}
           after={liftMonthBar ? <div ref={monthBarSlotRef} className="dc-root flex-1" /> : undefined}
@@ -65,9 +172,14 @@ export function HorizonPage() {
         <div className="mt-5">
           <DemandCalendar
             key={mod}
-            section="month" modes={calSet.modes} defaultMode={calSet.def}
-            monthBarPortalRef={liftMonthBar ? monthBarSlotRef : undefined} hideKpis={isFocusedMonth}
+            section="month"
+            modes={calSet.modes}
+            defaultMode={calSet.def}
+            monthBarPortalRef={liftMonthBar ? monthBarSlotRef : undefined}
+            hideKpis={isFocusedMonth}
             hideSrcSelect={isMarket}
+            externalData={mod === "demand" ? demandData : undefined}
+            loading={mod === "demand" ? demandLoading : false}
             extraControls={isMarket ? (
               <>
                 <div className="dc-seg" role="group" aria-label="Market">
@@ -257,13 +369,28 @@ export function HorizonPage() {
             }
             desc={(isWeekGrid || isDayFocus) ? undefined : "Refresh: " + CAD[mod][ti]}
             action={
-              isWeekGrid ? <WeekBadge weekOffset={weekOffset} setWeekOffset={setWeekOffset} />
-                : isDayFocus ? <DayBadge dayOffset={dayOffset} setDayOffset={setDayOffset} />
-                  : undefined
+              isWeekGrid ? (
+                <WeekBadge
+                  weekOffset={weekOffset}
+                  setWeekOffset={setWeekOffset}
+                  isDemand={isDemandWeek} // <--- Ensure isDemand is passed here
+                />
+              ) : isDayFocus ? (
+                <DayBadge dayOffset={dayOffset} setDayOffset={setDayOffset} />
+              ) : undefined
             }
           >
-            {isWeekGrid ? (
+            {/* {isWeekGrid ? (
               <WeekSupplyGrid groupBy={isSupplyWeek ? weekGroupBy : "category"} weekOffset={weekOffset} mod={isDemandWeek ? "demand" : "supply"} />
+            ) : g.chart ? ( */}
+            {isWeekGrid ? (
+              <WeekSupplyGrid
+                groupBy={isSupplyWeek ? weekGroupBy : "category"}
+                weekOffset={weekOffset}
+                mod={isDemandWeek ? "demand" : "supply"}
+                externalData={isDemandWeek ? weekData : undefined}
+                loading={isDemandWeek ? weekLoading : false}
+              />
             ) : g.chart ? (
               <>
                 <Legend spec={g.chart} />
@@ -291,14 +418,21 @@ export function HorizonPage() {
 
 /** "01 - 07 Apr 2019" (same month) or "29 Mar - 04 Apr 2019" (spans two months) for
  *  the 7-day window starting at `startIso` ("YYYY-MM-DD"); day numbers zero-padded. */
-function weekRangeLabel(startIso: string): string {
+function weekRangeLabel(mondayDate: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  const [sy, sm, sd] = startIso.split("-").map(Number);
-  const start = new Date(sy, sm - 1, sd);
-  const end = new Date(sy, sm - 1, sd + 6);
-  const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
-  const from = sameMonth ? pad(start.getDate()) : pad(start.getDate()) + " " + MON[start.getMonth()];
-  return from + " - " + pad(end.getDate()) + " " + MON[end.getMonth()] + " " + end.getFullYear();
+  const sundayDate = new Date(mondayDate);
+  sundayDate.setDate(sundayDate.getDate() + 6);
+
+  const startDay = pad(mondayDate.getDate());
+  const endDay = pad(sundayDate.getDate());
+  const startMon = MON[mondayDate.getMonth()].slice(0, 3);
+  const endMon = MON[sundayDate.getMonth()].slice(0, 3);
+  const year = sundayDate.getFullYear();
+
+  if (mondayDate.getMonth() === sundayDate.getMonth()) {
+    return `${startDay} - ${endDay} ${endMon} ${year}`;
+  }
+  return `${startDay} ${startMon} - ${endDay} ${endMon} ${year}`;
 }
 
 /** The week navigator for Supply's, Demand's, and Market Intelligence's week-ahead
@@ -307,33 +441,112 @@ function weekRangeLabel(startIso: string): string {
  *  "Previous/Current/Next Week" label; further out it's just the date range. Backward
  *  paging is unbounded down to the dataset's actual first day; forward paging stops
  *  at Next week. */
-function WeekBadge({ weekOffset, setWeekOffset }: { weekOffset: number; setWeekOffset: (n: number) => void }) {
+// function WeekBadge({ weekOffset, setWeekOffset }: { weekOffset: number; setWeekOffset: (n: number) => void }) {
+//   const { D } = useDcData();
+//   const { label, minOffset, maxOffset } = useMemo(() => {
+//     if (!D) return { label: "", minOffset: weekOffset, maxOffset: weekOffset };
+//     const anchor = Math.max(0, D.dates.indexOf(WINDOW_START));
+//     const idx = Math.max(0, Math.min(anchor + weekOffset * 7, D.dates.length - 7));
+//     const range = weekRangeLabel(D.dates[idx]);
+//     const relative = weekOffset === 0 ? "Current Week" : weekOffset === 1 ? "Next Week" : weekOffset === -1 ? "Previous Week" : null;
+//     return {
+//       label: relative ? relative + ", " + range : range,
+//       // Backward paging is unbounded down to the dataset's first day; forward paging
+//       // stops at Next week — there's no data beyond that to show.
+//       minOffset: Math.floor(-anchor / 7),
+//       maxOffset: 1,
+//     };
+//   }, [D, weekOffset]);
+//   return (
+//     <div className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border bg-card p-1 text-[13px]">
+//       <button
+//         type="button" aria-label="Previous week" disabled={weekOffset <= minOffset} onClick={() => setWeekOffset(Math.max(minOffset, weekOffset - 1))}
+//         className="grid h-7 w-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+//       >
+//         <ChevronLeft className="h-3.5 w-3.5" />
+//       </button>
+//       <span className="whitespace-nowrap px-2 font-medium">{label}</span>
+//       <button
+//         type="button" aria-label="Next week" disabled={weekOffset >= maxOffset} onClick={() => setWeekOffset(Math.min(maxOffset, weekOffset + 1))}
+//         className="grid h-7 w-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+//       >
+//         <ChevronRight className="h-3.5 w-3.5" />
+//       </button>
+//     </div>
+//   );
+// }
+
+function WeekBadge({
+  weekOffset,
+  setWeekOffset,
+  isDemand = false,
+}: {
+  weekOffset: number;
+  setWeekOffset: (n: number) => void;
+  isDemand?: boolean;
+}) {
   const { D } = useDcData();
+
   const { label, minOffset, maxOffset } = useMemo(() => {
+    // 1. Demand module (real calendar dates)
+    if (isDemand) {
+      const { mondayDate } = getWeekRange(weekOffset);
+      const range = weekRangeLabel(mondayDate);
+      const relative =
+        weekOffset === 0
+          ? "Current Week"
+          : weekOffset === 1
+            ? "Next Week"
+            : weekOffset === -1
+              ? "Previous Week"
+              : null;
+
+      return {
+        label: relative ? `${relative}, ${range}` : range,
+        minOffset: -Infinity, // <-- Unbounded for past weeks (free backward paging)
+        maxOffset: 1,         // <-- Restricted strictly up to Next Week
+      };
+    }
+
+    // 2. Fallback for Supply module
     if (!D) return { label: "", minOffset: weekOffset, maxOffset: weekOffset };
     const anchor = Math.max(0, D.dates.indexOf(WINDOW_START));
     const idx = Math.max(0, Math.min(anchor + weekOffset * 7, D.dates.length - 7));
-    const range = weekRangeLabel(D.dates[idx]);
-    const relative = weekOffset === 0 ? "Current Week" : weekOffset === 1 ? "Next Week" : weekOffset === -1 ? "Previous Week" : null;
+    const [sy, sm, sd] = D.dates[idx].split("-").map(Number);
+    const range = weekRangeLabel(new Date(sy, sm - 1, sd));
+    const relative =
+      weekOffset === 0
+        ? "Current Week"
+        : weekOffset === 1
+          ? "Next Week"
+          : weekOffset === -1
+            ? "Previous Week"
+            : null;
+
     return {
-      label: relative ? relative + ", " + range : range,
-      // Backward paging is unbounded down to the dataset's first day; forward paging
-      // stops at Next week — there's no data beyond that to show.
-      minOffset: Math.floor(-anchor / 7),
-      maxOffset: 1,
+      label: relative ? `${relative}, ${range}` : range,
+      minOffset: -Infinity, // <-- Unbounded for past weeks
+      maxOffset: 1,         // <-- Restricted up to Next Week
     };
-  }, [D, weekOffset]);
+  }, [D, weekOffset, isDemand]);
+
   return (
     <div className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border bg-card p-1 text-[13px]">
       <button
-        type="button" aria-label="Previous week" disabled={weekOffset <= minOffset} onClick={() => setWeekOffset(Math.max(minOffset, weekOffset - 1))}
+        type="button"
+        aria-label="Previous week"
+        disabled={weekOffset <= minOffset}
+        onClick={() => setWeekOffset(weekOffset - 1)}
         className="grid h-7 w-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
       >
         <ChevronLeft className="h-3.5 w-3.5" />
       </button>
       <span className="whitespace-nowrap px-2 font-medium">{label}</span>
       <button
-        type="button" aria-label="Next week" disabled={weekOffset >= maxOffset} onClick={() => setWeekOffset(Math.min(maxOffset, weekOffset + 1))}
+        type="button"
+        aria-label="Next week"
+        disabled={weekOffset >= maxOffset}
+        onClick={() => setWeekOffset(Math.min(maxOffset, weekOffset + 1))}
         className="grid h-7 w-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
       >
         <ChevronRight className="h-3.5 w-3.5" />
