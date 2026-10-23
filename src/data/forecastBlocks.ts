@@ -1,7 +1,7 @@
 // Shared dummy 96-block series for Demand's "Demand Forecast" and "Demand Tune up"
 // pages (see ForecastAccuracyDashboard.tsx / DemandTuneupPanel.tsx) — both read from
 // this one generator so their Actual / System Forecast numbers match exactly.
-import { nowB, type TfId } from "@/data/engine";
+import { NOW, nowB, type TfId } from "@/data/engine";
 
 export const BLOCKS = 96;
 
@@ -11,14 +11,24 @@ export type ForecastBlock = {
   mape: number | null; roasteringDelta: number | null;
 };
 
-/** For the Intra-day horizon, "today" is already under way — only block `nowB`
- *  onward is real/available, so every block before it is left out entirely (not
- *  rendered as blank chart space). Every other horizon shows the full 96 blocks
- *  (it's all still ahead). */
-export function buildForecastBlocks(tf: TfId): ForecastBlock[] {
-  const startAt = tf === "id" ? nowB : 0;
+/** Last block that carries data for a given day: every block of a past day, up to
+ *  `nowB` today, none for a future day. */
+export function lastBlockForDate(date: Date): number {
+  const d = new Date(date); d.setHours(0, 0, 0, 0);
+  const today = new Date(NOW); today.setHours(0, 0, 0, 0);
+  return d < today ? BLOCKS - 1 : d > today ? -1 : nowB;
+}
+
+/** Every horizon lays out all 96 blocks. On Intra-day and Day-ahead (default: the
+ *  current day), only blocks up to `lastWithData` carry data — later blocks are left
+ *  blank so the axis still spans the whole day. Other horizons are filled end to end. */
+export function buildForecastBlocks(tf: TfId, lastWithData = tf === "id" || tf === "da" ? nowB : BLOCKS - 1): ForecastBlock[] {
   const rows: ForecastBlock[] = [];
-  for (let i = startAt; i < BLOCKS; i++) {
+  for (let i = 0; i < BLOCKS; i++) {
+    if (i > lastWithData) {
+      rows.push({ i, actual: null, forecast: null, band: null, roasterRange: null, mape: null, roasteringDelta: null });
+      continue;
+    }
     const h = i / 4;
     const morning = Math.exp(-((h - 9) ** 2) / 8) * 1750;
     const evening = Math.exp(-((h - 19) ** 2) / 10) * 1500;
