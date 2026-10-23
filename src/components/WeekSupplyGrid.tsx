@@ -1,25 +1,20 @@
-// Week-ahead small-multiples day grid — the same visual language, interactions
-// and CSS as the Month-ahead calendar (DemandCalendar.tsx): one mini stacked-area
-// card per day with a hover tooltip and click-to-expand, and a Remark column with
-// a day-by-day average. One single row of 9 boxes, in order: Mon..Fri, their
-// Remark, Sat, Sun, their Remark. Used for both Supply ("Supply stack by source
-// vs demand", with the "Graph Type" Category/Technology/Variable Cost/Plants
-// breakdown — see breakdown.ts) and Demand (a single demand-met area, no stack —
-// `mod="demand"` skips the Graph Type breakdown entirely).
-//
-// Data: the same real UP declared-capacity / demand dataset (public/dc/data.json)
-// that the Month-ahead calendar uses — via the loadgrid feature's useDcData — not
-// the WK week-ahead forecast in engine.ts. Each day already carries 96 fifteen-min
-// blocks, so no upsampling is needed. A fixed 7-day window starting 1 Apr 2019 is
-// used (the dataset doesn't reach into the real "current" week).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DAY, MON } from "@/data/engine";
 import { groupsFor, splitByGroup, type GroupBy } from "@/features/loadgrid/breakdown";
 import { useDcData } from "@/features/loadgrid/data";
+import type { DemandCalendarData } from "@/store/features/demandTypes";
 import "./DemandCalendar.css";
 
 const BLOCKS = 96;
 export const WINDOW_START = "2019-04-01";
+
+// Helper to format ISO date YYYY-MM-DD
+function toIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 const mw = (v: number) => Math.round(v).toLocaleString("en-IN");
 
@@ -69,36 +64,183 @@ function blockTipHtml(d: { label: string; layers: Layer[]; F: number[]; avail: n
   return html;
 }
 
-export function WeekSupplyGrid({ groupBy, weekOffset = 0, mod }: { groupBy: GroupBy; weekOffset?: number; mod: "supply" | "demand" }) {
-  const { D, err } = useDcData();
+// export function WeekSupplyGrid({ groupBy, weekOffset = 0, mod }: { groupBy: GroupBy; weekOffset?: number; mod: "supply" | "demand" }) {
+//   const { D, err } = useDcData();
+//   const isDemand = mod === "demand";
+//   const groups = useMemo(() => groupsFor(groupBy), [groupBy]);
+
+//   const perDay = useMemo((): DayData[] => {
+//     if (!D) return [];
+//     const anchor = Math.max(0, D.dates.indexOf(WINDOW_START));
+//     // weekOffset shifts a full 7 days at a time (Previous/Current/Next week),
+//     // clamped so the window never runs past either end of the dataset.
+//     const idx = Math.max(0, Math.min(anchor + weekOffset * 7, D.dates.length - 7));
+//     return D.dates.slice(idx, idx + 7).map((iso, k) => {
+//       const i = idx + k;
+//       const [y, m, d] = iso.split("-").map(Number);
+//       const weekday = new Date(y, m - 1, d).getDay();
+//       const avail = D.av[i];
+//       // Demand has no stack: a single "Demand met" area, same as Month-ahead's
+//       // plain "dem" mode — Graph Type (Category/Technology/...) is Supply-only.
+//       const split = isDemand ? null : splitByGroup(avail, groups);
+//       const layers = isDemand
+//         ? [{ name: "Demand met", color: "var(--dc-sur)", v: D.dem[i] }]
+//         : groups.map((g, gi) => ({ name: g.name, color: g.color, v: split![gi] }));
+//       return {
+//         key: iso, label: DAY[weekday] + " " + d + " " + MON[m - 1],
+//         date: d, weekday,
+//         F: D.dem[i], avail,
+//         layers,
+//       };
+//     });
+//   }, [D, groups, weekOffset, isDemand]);
+
+//   const range = useMemo((): [number, number] => {
+//     if (!perDay.length) return [0, 1];
+//     const all = perDay.flatMap((d) => [...d.F, ...d.avail]);
+//     return [0, Math.max(...all) || 1];
+//   }, [perDay]);
+
+//   const working = perDay.filter((d) => d.weekday >= 1 && d.weekday <= 5);
+//   const weekend = perDay.filter((d) => d.weekday === 0 || d.weekday === 6);
+
+//   const [tip, setTip] = useState<{ x: number; y: number; html: string } | null>(null);
+//   const showTip = useCallback((e: { clientX: number; clientY: number }, html: string) => {
+//     const vw = window.innerWidth, vh = window.innerHeight, tw = 230, th = 180;
+//     let lx = e.clientX + 16; if (lx + tw > vw - 8) lx = e.clientX - tw - 16; if (lx < 8) lx = 8;
+//     setTip({ x: lx, y: Math.max(8, Math.min(e.clientY - th / 2, vh - th - 8)), html });
+//   }, []);
+//   const hideTip = useCallback(() => setTip(null), []);
+
+//   const [openKey, setOpenKey] = useState<string | null>(null);
+//   const openIdx = openKey != null ? perDay.findIndex((d) => d.key === openKey) : -1;
+
+//   // 3x3: Mon/Tue/Wed · Thu/Fri/Remark(working) · Sat/Sun/Remark(weekend). Each
+//   // Remark is built the same way as a day cell — a block-by-block average across
+//   // its group's days, drawn as the same stacked-area + demand-line chart.
+//   const row1 = working.slice(0, 3);
+//   const row2 = working.slice(3, 5);
+//   const dayCell = (d: DayData) => (
+//     <WeekDayCell key={d.key} d={d} range={range} isDemand={isDemand} onOpen={() => setOpenKey(d.key)} showTip={showTip} hideTip={hideTip} />
+//   );
+
+//   if (err) return <p className="dc-note">Could not load the week's {isDemand ? "demand" : "supply"} data. Reload the page to try again.</p>;
+//   if (!perDay.length) return <p className="dc-note">Loading week's {isDemand ? "demand" : "supply"} data…</p>;
+
+//   return (
+//     <div className="dc-root">
+//       <div className="dc-cal-scroll">
+//         <div className="dc-cal" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+//           {row1.map(dayCell)}
+//           {row2.map(dayCell)}
+//           <RemarkDayCell title="Remarks" days={working} range={range} isDemand={isDemand} showTip={showTip} hideTip={hideTip} />
+//           {weekend.map(dayCell)}
+//           <RemarkDayCell title="Remarks" days={weekend} range={range} isDemand={isDemand} showTip={showTip} hideTip={hideTip} />
+//         </div>
+//       </div>
+
+//       <p className="dc-note">
+//         {isDemand
+//           ? "Pk = day's peak demand · chip = day energy (MU) · Remark = that group's block-by-block average, Mon–Fri or Sat–Sun, drawn the same way as a day · hover a day for block values · click a day to open it full size."
+//           : "Pk = day's peak demand · chip = tightest block (blue surplus, red deficit) · Remark = that group's block-by-block average, Mon–Fri or Sat–Sun, drawn the same way as a day · hover a day for block values · click a day to open it full size."}
+//       </p>
+
+//       {openIdx >= 0 && (
+//         <WeekDayModal
+//           days={perDay} i={openIdx} range={range} isDemand={isDemand}
+//           onClose={() => setOpenKey(null)} setDay={(k) => setOpenKey(perDay[k].key)}
+//           showTip={showTip} hideTip={hideTip}
+//         />
+//       )}
+
+//       {tip && <div className="dc-tip" style={{ left: tip.x, top: tip.y }} dangerouslySetInnerHTML={{ __html: tip.html }} />}
+//     </div>
+//   );
+// }
+
+export function WeekSupplyGrid({
+  groupBy,
+  weekOffset = 0,
+  mod,
+  externalData,
+  loading = false,
+  baseDate = new Date("2026-10-19"), // Default anchor Monday for the current API window
+}: {
+  groupBy: GroupBy;
+  weekOffset?: number;
+  mod: "supply" | "demand";
+  externalData?: DemandCalendarData | null;
+  loading?: boolean;
+  baseDate?: Date;
+}) {
+  const { D: fallbackD, err } = useDcData();
   const isDemand = mod === "demand";
   const groups = useMemo(() => groupsFor(groupBy), [groupBy]);
 
+  // Compute 7 days for current week window
   const perDay = useMemo((): DayData[] => {
-    if (!D) return [];
-    const anchor = Math.max(0, D.dates.indexOf(WINDOW_START));
-    // weekOffset shifts a full 7 days at a time (Previous/Current/Next week),
-    // clamped so the window never runs past either end of the dataset.
-    const idx = Math.max(0, Math.min(anchor + weekOffset * 7, D.dates.length - 7));
-    return D.dates.slice(idx, idx + 7).map((iso, k) => {
+    // 1. If externalData is passed (Demand module via Redux API)
+    if (isDemand && externalData) {
+      // Find Monday for this weekOffset
+      const startMonday = new Date(baseDate);
+      startMonday.setDate(startMonday.getDate() + weekOffset * 7);
+
+      const days: DayData[] = [];
+      for (let offset = 0; offset < 7; offset++) {
+        const currentDate = new Date(startMonday);
+        currentDate.setDate(currentDate.getDate() + offset);
+
+        const iso = toIsoDate(currentDate);
+        const y = currentDate.getFullYear();
+        const m = currentDate.getMonth() + 1;
+        const d = currentDate.getDate();
+        const weekday = currentDate.getDay();
+
+        const dataIndex = externalData.dates.indexOf(iso);
+        const hasData = dataIndex >= 0;
+
+        const demSeries = hasData ? externalData.dem[dataIndex] : new Array(BLOCKS).fill(0);
+        const availSeries = hasData ? externalData.av[dataIndex] : new Array(BLOCKS).fill(0);
+
+        days.push({
+          key: iso,
+          label: `${DAY[weekday]} ${d} ${MON[m - 1]}`,
+          date: d,
+          weekday,
+          F: demSeries,
+          avail: availSeries,
+          layers: [{ name: "Demand met", color: "var(--dc-sur)", v: demSeries }],
+        });
+      }
+      return days;
+    }
+
+    // 2. Fallback to existing supply dataset
+    if (!fallbackD) return [];
+    const anchor = Math.max(0, fallbackD.dates.indexOf(WINDOW_START));
+    const idx = Math.max(0, Math.min(anchor + weekOffset * 7, fallbackD.dates.length - 7));
+
+    return fallbackD.dates.slice(idx, idx + 7).map((iso, k) => {
       const i = idx + k;
       const [y, m, d] = iso.split("-").map(Number);
       const weekday = new Date(y, m - 1, d).getDay();
-      const avail = D.av[i];
-      // Demand has no stack: a single "Demand met" area, same as Month-ahead's
-      // plain "dem" mode — Graph Type (Category/Technology/...) is Supply-only.
+      const avail = fallbackD.av[i];
       const split = isDemand ? null : splitByGroup(avail, groups);
       const layers = isDemand
-        ? [{ name: "Demand met", color: "var(--dc-sur)", v: D.dem[i] }]
+        ? [{ name: "Demand met", color: "var(--dc-sur)", v: fallbackD.dem[i] }]
         : groups.map((g, gi) => ({ name: g.name, color: g.color, v: split![gi] }));
+
       return {
-        key: iso, label: DAY[weekday] + " " + d + " " + MON[m - 1],
-        date: d, weekday,
-        F: D.dem[i], avail,
+        key: iso,
+        label: DAY[weekday] + " " + d + " " + MON[m - 1],
+        date: d,
+        weekday,
+        F: fallbackD.dem[i],
+        avail,
         layers,
       };
     });
-  }, [D, groups, weekOffset, isDemand]);
+  }, [isDemand, externalData, baseDate, weekOffset, fallbackD, groups]);
 
   const range = useMemo((): [number, number] => {
     if (!perDay.length) return [0, 1];
@@ -112,7 +254,9 @@ export function WeekSupplyGrid({ groupBy, weekOffset = 0, mod }: { groupBy: Grou
   const [tip, setTip] = useState<{ x: number; y: number; html: string } | null>(null);
   const showTip = useCallback((e: { clientX: number; clientY: number }, html: string) => {
     const vw = window.innerWidth, vh = window.innerHeight, tw = 230, th = 180;
-    let lx = e.clientX + 16; if (lx + tw > vw - 8) lx = e.clientX - tw - 16; if (lx < 8) lx = 8;
+    let lx = e.clientX + 16;
+    if (lx + tw > vw - 8) lx = e.clientX - tw - 16;
+    if (lx < 8) lx = 8;
     setTip({ x: lx, y: Math.max(8, Math.min(e.clientY - th / 2, vh - th - 8)), html });
   }, []);
   const hideTip = useCallback(() => setTip(null), []);
@@ -120,16 +264,22 @@ export function WeekSupplyGrid({ groupBy, weekOffset = 0, mod }: { groupBy: Grou
   const [openKey, setOpenKey] = useState<string | null>(null);
   const openIdx = openKey != null ? perDay.findIndex((d) => d.key === openKey) : -1;
 
-  // 3x3: Mon/Tue/Wed · Thu/Fri/Remark(working) · Sat/Sun/Remark(weekend). Each
-  // Remark is built the same way as a day cell — a block-by-block average across
-  // its group's days, drawn as the same stacked-area + demand-line chart.
   const row1 = working.slice(0, 3);
   const row2 = working.slice(3, 5);
   const dayCell = (d: DayData) => (
-    <WeekDayCell key={d.key} d={d} range={range} isDemand={isDemand} onOpen={() => setOpenKey(d.key)} showTip={showTip} hideTip={hideTip} />
+    <WeekDayCell
+      key={d.key}
+      d={d}
+      range={range}
+      isDemand={isDemand}
+      onOpen={() => setOpenKey(d.key)}
+      showTip={showTip}
+      hideTip={hideTip}
+    />
   );
 
-  if (err) return <p className="dc-note">Could not load the week's {isDemand ? "demand" : "supply"} data. Reload the page to try again.</p>;
+  if (loading) return <p className="dc-note">Loading week's demand forecast data…</p>;
+  if (!isDemand && err) return <p className="dc-note">Could not load the week's supply data. Reload the page to try again.</p>;
   if (!perDay.length) return <p className="dc-note">Loading week's {isDemand ? "demand" : "supply"} data…</p>;
 
   return (
@@ -146,15 +296,20 @@ export function WeekSupplyGrid({ groupBy, weekOffset = 0, mod }: { groupBy: Grou
 
       <p className="dc-note">
         {isDemand
-          ? "Pk = day's peak demand · chip = day energy (MU) · Remark = that group's block-by-block average, Mon–Fri or Sat–Sun, drawn the same way as a day · hover a day for block values · click a day to open it full size."
-          : "Pk = day's peak demand · chip = tightest block (blue surplus, red deficit) · Remark = that group's block-by-block average, Mon–Fri or Sat–Sun, drawn the same way as a day · hover a day for block values · click a day to open it full size."}
+          ? "Pk = day's peak demand · chip = day energy (MU) · Remark = that group's block-by-block average, Mon–Fri or Sat–Sun · hover a day for block values · click a day to open it full size."
+          : "Pk = day's peak demand · chip = tightest block (blue surplus, red deficit) · Remark = that group's block-by-block average, Mon–Fri or Sat–Sun · hover a day for block values · click a day to open it full size."}
       </p>
 
       {openIdx >= 0 && (
         <WeekDayModal
-          days={perDay} i={openIdx} range={range} isDemand={isDemand}
-          onClose={() => setOpenKey(null)} setDay={(k) => setOpenKey(perDay[k].key)}
-          showTip={showTip} hideTip={hideTip}
+          days={perDay}
+          i={openIdx}
+          range={range}
+          isDemand={isDemand}
+          onClose={() => setOpenKey(null)}
+          setDay={(k) => setOpenKey(perDay[k].key)}
+          showTip={showTip}
+          hideTip={hideTip}
         />
       )}
 

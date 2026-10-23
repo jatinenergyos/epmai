@@ -109,27 +109,118 @@ const fillToZero = (a: number[], g: Geom) => {
 };
 
 /* ---------- the big component ---------- */
-export function DemandCalendar({ section = "month", modes = ALL_MODES, defaultMode = "stack", monthBarPortalRef, supplyFocus = false, hideKpis = false, hideSrcSelect = false, extraControls }: { section?: "month" | "year"; modes?: Mode[]; defaultMode?: Mode; monthBarPortalRef?: RefObject<HTMLElement | null>; supplyFocus?: boolean; hideKpis?: boolean; hideSrcSelect?: boolean; extraControls?: ReactNode }) {
+// export function DemandCalendar({ section = "month", modes = ALL_MODES, defaultMode = "stack", monthBarPortalRef, supplyFocus = false, hideKpis = false, hideSrcSelect = false, extraControls }: { section?: "month" | "year"; modes?: Mode[]; defaultMode?: Mode; monthBarPortalRef?: RefObject<HTMLElement | null>; supplyFocus?: boolean; hideKpis?: boolean; hideSrcSelect?: boolean; extraControls?: ReactNode }) {
+//   const [D, setD] = useState<Data | null>(null);
+//   const [PI, setPI] = useState<PlantInfo[] | null>(null);
+//   const [err, setErr] = useState(false);
+
+//   useEffect(() => {
+//     let alive = true;
+//     Promise.all([
+//       fetch(base + "dc/data.json").then((r) => r.json()),
+//       fetch(base + "dc/pidx.json").then((r) => r.json()),
+//     ])
+//       .then(([d, pi]) => { if (alive) { setD(d); setPI(pi); } })
+//       .catch(() => alive && setErr(true));
+//     return () => { alive = false; };
+//   }, []);
+
+//   if (err) return <p className="dc-note">Could not load demand-calendar data. Reload the page to try again.</p>;
+//   if (!D || !PI) return <p className="dc-note">Loading demand calendar…</p>;
+//   return section === "year"
+//     ? <YearView D={D} PI={PI} modes={modes} defaultMode={defaultMode} supplyFocus={supplyFocus} hideKpis={hideKpis} extraControls={extraControls} />
+//     : <Calendar D={D} PI={PI} modes={modes} defaultMode={defaultMode} monthBarPortalRef={monthBarPortalRef} hideKpis={hideKpis} hideSrcSelect={hideSrcSelect} extraControls={extraControls} />;
+// }
+
+export function DemandCalendar({
+  section = "month",
+  modes = ALL_MODES,
+  defaultMode = "stack",
+  monthBarPortalRef,
+  supplyFocus = false,
+  hideKpis = false,
+  hideSrcSelect = false,
+  extraControls,
+  externalData,
+  loading = false,
+}: {
+  section?: "month" | "year";
+  modes?: Mode[];
+  defaultMode?: Mode;
+  monthBarPortalRef?: RefObject<HTMLElement | null>;
+  supplyFocus?: boolean;
+  hideKpis?: boolean;
+  hideSrcSelect?: boolean;
+  extraControls?: ReactNode;
+  externalData?: Data | null;
+  loading?: boolean;
+}) {
   const [D, setD] = useState<Data | null>(null);
   const [PI, setPI] = useState<PlantInfo[] | null>(null);
   const [err, setErr] = useState(false);
 
   useEffect(() => {
-    let alive = true;
-    Promise.all([
-      fetch(base + "dc/data.json").then((r) => r.json()),
-      fetch(base + "dc/pidx.json").then((r) => r.json()),
-    ])
-      .then(([d, pi]) => { if (alive) { setD(d); setPI(pi); } })
-      .catch(() => alive && setErr(true));
-    return () => { alive = false; };
-  }, []);
+    // 1. If externalData is explicitly provided, mount it
+    if (externalData) {
+      setD(externalData);
+      setPI([]);
+      return;
+    }
 
+    // 2. If externalData is explicitly passed as null and loading is active, hold off fetching fallback files
+    if (externalData === null && loading) {
+      return;
+    }
+
+    // 3. Fallback to local files only if externalData is undefined
+    if (externalData === undefined) {
+      let alive = true;
+      Promise.all([
+        fetch(base + "dc/data.json").then((r) => r.json()),
+        fetch(base + "dc/pidx.json").then((r) => r.json()),
+      ])
+        .then(([d, pi]) => {
+          if (alive) {
+            setD(d);
+            setPI(pi);
+          }
+        })
+        .catch(() => alive && setErr(true));
+      return () => {
+        alive = false;
+      };
+    }
+  }, [externalData, loading]);
+
+  // Prevent rendering children while loading or while data has not arrived
+  if (loading || (externalData === null && !D)) {
+    return <p className="dc-note">Loading demand forecast data…</p>;
+  }
   if (err) return <p className="dc-note">Could not load demand-calendar data. Reload the page to try again.</p>;
-  if (!D || !PI) return <p className="dc-note">Loading demand calendar…</p>;
-  return section === "year"
-    ? <YearView D={D} PI={PI} modes={modes} defaultMode={defaultMode} supplyFocus={supplyFocus} hideKpis={hideKpis} extraControls={extraControls} />
-    : <Calendar D={D} PI={PI} modes={modes} defaultMode={defaultMode} monthBarPortalRef={monthBarPortalRef} hideKpis={hideKpis} hideSrcSelect={hideSrcSelect} extraControls={extraControls} />;
+  if (!D) return <p className="dc-note">Loading demand calendar…</p>;
+
+  return section === "year" ? (
+    <YearView
+      D={D}
+      PI={PI ?? []}
+      modes={modes}
+      defaultMode={defaultMode}
+      supplyFocus={supplyFocus}
+      hideKpis={hideKpis}
+      extraControls={extraControls}
+    />
+  ) : (
+    <Calendar
+      D={D}
+      PI={PI ?? []}
+      modes={modes}
+      defaultMode={defaultMode}
+      monthBarPortalRef={monthBarPortalRef}
+      hideKpis={hideKpis}
+      hideSrcSelect={hideSrcSelect}
+      extraControls={extraControls}
+    />
+  );
 }
 
 function Calendar({ D, PI, modes, defaultMode, initialMonthKey, monthBarPortalRef, hideKpis = false, hideSrcSelect = false, extraControls }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode; initialMonthKey?: string; monthBarPortalRef?: RefObject<HTMLElement | null>; hideKpis?: boolean; hideSrcSelect?: boolean; extraControls?: ReactNode }) {
