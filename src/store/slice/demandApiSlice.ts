@@ -5,6 +5,7 @@ import type {
     DemandQueryParams,
     DemandState,
 } from "../features/demandTypes";
+import BASE_URL from '../../../BASE_URL'
 
 const initialState: DemandState = {
     data: null,
@@ -63,7 +64,7 @@ export const fetchDemandForecast = createAsyncThunk<
         table: params?.table ?? "daily",
     });
 
-    const res = await fetch(`http://72.60.203.220:8094/api/v1/demand-forcast/?${query.toString()}`, {
+    const res = await fetch(`${BASE_URL}demand-forcast/?${query.toString()}`, {
         headers: { accept: "*/*" },
     });
 
@@ -86,7 +87,7 @@ export const fetchWeekDemandForecast = createAsyncThunk<
         table: params?.table ?? "daily",
     });
 
-    const res = await fetch(`http://72.60.203.220:8094/api/v1/demand-forcast/?${query.toString()}`, {
+    const res = await fetch(`${BASE_URL}demand-forcast/?${query.toString()}`, {
         headers: { accept: "*/*" },
     });
 
