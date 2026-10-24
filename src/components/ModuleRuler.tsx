@@ -3,8 +3,8 @@ import { useHorizonModule, type RulerSel } from "@/lib/horizon";
 import { cn } from "@/lib/utils";
 
 // Overview leads the strip (it's the default landing) and lays out every module at the horizon;
-// Analytics follows, then the rest in their usual order.
-const RULER_MODS = [...MODS].sort((a, b) => (a.id === "analytics" ? -1 : b.id === "analytics" ? 1 : 0));
+// the modules follow in their usual order, with Analytics last.
+const RULER_MODS = [...MODS].sort((a, b) => (a.id === "analytics" ? 1 : b.id === "analytics" ? -1 : 0));
 const RULER: { id: RulerSel; name: string; sub: string }[] = [
   { id: "overview", name: "Overview", sub: "Every module at a glance" },
   ...RULER_MODS.map((m) => ({ id: m.id, name: m.name, sub: m.sub })),

@@ -127,7 +127,7 @@ export function CommandCentrePage() {
                 </th>
                 {TFS.map((t) => (
                   <th key={t.id} className={cn("px-1 pb-0.5 align-bottom", t.id === tf && "rounded-t-md bg-accent")}>
-                    <Link to="/horizon" search={(prev: Record<string, unknown>) => ({ ...prev, h: t.id })} title={"Open planning horizon · " + t.name}
+                    <Link to="/horizon" search={(prev: Record<string, unknown>) => ({ ...prev, h: t.id, mod: "overview" })} title={"Open planning horizon · " + t.name}
                       className="group block w-full rounded px-1.5 py-0.5 text-left hover:bg-accent">
                       <span className="flex items-center gap-1 text-[13px] font-semibold">
                         {t.name}

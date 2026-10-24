@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { CalendarClock } from "lucide-react";
 import { TFS } from "@/data/engine";
 import {
@@ -10,24 +10,28 @@ import { cn } from "@/lib/utils";
 
 /** Header "Planning horizon" entry rendered as a shadcn Navigation Menu (same as "All modules"):
  *  a trigger showing the active horizon that opens a panel of every horizon. Picking one opens the
- *  Planning-horizon page for that horizon, which leads with the all-module Overview. */
+ *  Planning-horizon page for that horizon, which leads with the all-module Overview. While on
+ *  that page the trigger shows the chosen horizon's name instead of "Planning horizon". */
 export function HorizonNav() {
   const { tf } = useHorizon();
   const navigate = useNavigate();
-  // Picking a horizon opens the Planning-horizon page for it; its module strip defaults to the
-  // Overview (every module at that horizon).
+  const { pathname } = useLocation();
+  const onHorizon = pathname === "/horizon";
+  // Picking a horizon opens the Planning-horizon page for it, always on the Overview tab
+  // (every module at that horizon), whichever module was open before.
   const pick = (id: typeof TFS[number]["id"]) =>
-    navigate({ to: "/horizon", search: (prev: Record<string, unknown>) => ({ ...prev, h: id }) });
+    navigate({ to: "/horizon", search: (prev: Record<string, unknown>) => ({ ...prev, h: id, mod: "overview" }) });
 
   return (
     <NavigationMenu>
       <NavigationMenuList>
         <NavigationMenuItem>
           <NavigationMenuTrigger
-            className="h-auto gap-1 bg-transparent px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground hover:bg-accent hover:text-foreground focus:bg-accent focus:text-foreground"
+            className={cn("h-auto gap-1 bg-transparent px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground hover:bg-accent hover:text-foreground focus:bg-accent focus:text-foreground",
+              onHorizon && "bg-accent text-foreground")}
           >
             <CalendarClock className="h-3.5 w-3.5" />
-            Planning horizon
+            {onHorizon ? TFS.find((t) => t.id === tf)?.name : "Planning horizon"}
           </NavigationMenuTrigger>
           <NavigationMenuContent>
             <div className="w-[min(90vw,34rem)] p-3">
