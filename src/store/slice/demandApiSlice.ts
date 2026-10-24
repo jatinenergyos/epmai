@@ -4,6 +4,8 @@ import type {
     DemandCalendarData,
     DemandQueryParams,
     DemandState,
+    Season,
+    SeasonApiResponse,
 } from "../features/demandTypes";
 import BASE_URL from '../../../BASE_URL'
 
@@ -14,6 +16,17 @@ const initialState: DemandState = {
     weekData: null,
     weekLoading: false,
     weekError: null,
+    dayData: null,
+    dayLoading: false,
+    dayError: null,
+    dayRequestId: null,
+    yearData: null,
+    yearLoading: false,
+    yearError: null,
+    seasons: null,
+    yearDay: null,
+    yearDayRequestId: null,
+    yearRequestId: null,
 };
 
 // Helper to transform API response rows into 96-block calendar format
@@ -96,6 +109,90 @@ export const fetchWeekDemandForecast = createAsyncThunk<
     return transformDemandRows(json.rows);
 });
 
+// 3. Day-ahead Thunk (data_id=102110) — one day, so from_date = to_date
+export const fetchDayDemandForecast = createAsyncThunk<
+    DemandCalendarData,
+    DemandQueryParams & { date: string }
+>("demand/fetchDayDemandForecast", async (params) => {
+    const query = new URLSearchParams({
+        data_id: String(params.data_id ?? 102110),
+        from_date: params.date,
+        to_date: params.date,
+        location_id: String(params.location_id ?? 10030),
+        forcasted_by: params.forcasted_by ?? "System",
+    });
+
+    const res = await fetch(`${BASE_URL}demand-forcast/?${query.toString()}`, {
+        headers: { accept: "*/*" },
+    });
+
+    if (!res.ok) throw new Error(`Failed to fetch day forecast: ${res.statusText}`);
+    const json: DemandApiResponse = await res.json();
+    return transformDemandRows(json.rows);
+});
+
+// 4. Year-ahead Thunk (data_id=102140)
+export const fetchYearDemandForecast = createAsyncThunk<
+    DemandCalendarData,
+    DemandQueryParams | undefined
+>("demand/fetchYearDemandForecast", async (params) => {
+    const query = new URLSearchParams({
+        data_id: String(params?.data_id ?? 102140),
+        from_date: params?.from_date ?? "2026-11-01",
+        to_date: params?.to_date ?? "2027-10-31",
+        location_id: String(params?.location_id ?? 10030),
+        forcasted_by: params?.forcasted_by ?? "System",
+        table: params?.table ?? "daily",
+    });
+
+    const res = await fetch(`${BASE_URL}demand-forcast/?${query.toString()}`, {
+        headers: { accept: "*/*" },
+    });
+
+    if (!res.ok) throw new Error(`Failed to fetch year forecast: ${res.statusText}`);
+    const json: DemandApiResponse = await res.json();
+    return transformDemandRows(json.rows);
+});
+
+// 5. Year-ahead single day (data_id=102140, from_date = to_date) — opened from the year grid
+export const fetchYearDayDemand = createAsyncThunk<
+    { date: string; dem: number[] },
+    DemandQueryParams & { date: string }
+>("demand/fetchYearDayDemand", async (params) => {
+    const query = new URLSearchParams({
+        data_id: String(params.data_id ?? 102140),
+        from_date: params.date,
+        to_date: params.date,
+        location_id: String(params.location_id ?? 10030),
+        forcasted_by: params.forcasted_by ?? "System",
+        table: params.table ?? "daily",
+    });
+
+    const res = await fetch(`${BASE_URL}demand-forcast/?${query.toString()}`, {
+        headers: { accept: "*/*" },
+    });
+
+    if (!res.ok) throw new Error(`Failed to fetch day forecast: ${res.statusText}`);
+    const json: DemandApiResponse = await res.json();
+    const data = transformDemandRows(json.rows);
+    return { date: params.date, dem: data.dem[0] ?? [] };
+});
+
+// 6. Seasons covering a date range
+export const fetchSeasons = createAsyncThunk<
+    Season[],
+    { start_date: string; end_date: string }
+>("demand/fetchSeasons", async ({ start_date, end_date }) => {
+    const query = new URLSearchParams({ start_date, end_date });
+    const res = await fetch(`${BASE_URL}period/season-by-date?${query.toString()}`, {
+        headers: { accept: "*/*" },
+    });
+
+    if (!res.ok) throw new Error(`Failed to fetch seasons: ${res.statusText}`);
+    const json: SeasonApiResponse = await res.json();
+    return json.seasons;
+});
+
 export const demandSlice = createSlice({
     name: "demand",
     initialState,
@@ -107,6 +204,14 @@ export const demandSlice = createSlice({
             state.weekData = null;
             state.weekLoading = false;
             state.weekError = null;
+            state.dayData = null;
+            state.dayLoading = false;
+            state.dayError = null;
+            state.yearData = null;
+            state.yearLoading = false;
+            state.yearError = null;
+            state.seasons = null;
+            state.yearDay = null;
         },
     },
     extraReducers: (builder) => {
@@ -138,6 +243,63 @@ export const demandSlice = createSlice({
             .addCase(fetchWeekDemandForecast.rejected, (state, action) => {
                 state.weekLoading = false;
                 state.weekError = action.error.message || "Failed to load week forecast";
+            });
+
+        // Day Ahead Handlers
+        builder
+            // Only the latest request may land — paging quickly fires several.
+            .addCase(fetchDayDemandForecast.pending, (state, action) => {
+                state.dayRequestId = action.meta.requestId;
+                state.dayLoading = true;
+                state.dayError = null;
+            })
+            .addCase(fetchDayDemandForecast.fulfilled, (state, action) => {
+                if (action.meta.requestId !== state.dayRequestId) return;
+                state.dayLoading = false;
+                state.dayData = action.payload;
+            })
+            .addCase(fetchDayDemandForecast.rejected, (state, action) => {
+                if (action.meta.requestId !== state.dayRequestId) return;
+                state.dayLoading = false;
+                state.dayData = null;
+                state.dayError = action.error.message || "Failed to load day forecast";
+            });
+
+        // Year Ahead Handlers
+        builder
+            .addCase(fetchYearDemandForecast.pending, (state, action) => {
+                state.yearRequestId = action.meta.requestId;
+                state.yearLoading = true;
+                state.yearError = null;
+            })
+            .addCase(fetchYearDemandForecast.fulfilled, (state, action) => {
+                if (action.meta.requestId !== state.yearRequestId) return;
+                state.yearLoading = false;
+                state.yearData = action.payload;
+            })
+            .addCase(fetchYearDemandForecast.rejected, (state, action) => {
+                if (action.meta.requestId !== state.yearRequestId) return;
+                state.yearLoading = false;
+                state.yearError = action.error.message || "Failed to load year forecast";
+            });
+
+        // Year Ahead single-day Handlers (only the latest request may land)
+        builder
+            .addCase(fetchYearDayDemand.pending, (state, action) => {
+                state.yearDayRequestId = action.meta.requestId;
+            })
+            .addCase(fetchYearDayDemand.fulfilled, (state, action) => {
+                if (action.meta.requestId !== state.yearDayRequestId) return;
+                state.yearDay = action.payload;
+            });
+
+        // Season Handlers
+        builder
+            .addCase(fetchSeasons.pending, (state) => {
+                state.seasons = null;
+            })
+            .addCase(fetchSeasons.fulfilled, (state, action) => {
+                state.seasons = action.payload;
             });
     },
 });

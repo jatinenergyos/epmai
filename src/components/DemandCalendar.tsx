@@ -13,7 +13,21 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import { createPortal } from "react-dom";
 import { groupsFor, splitByGroup, type Group, type GroupBy } from "@/features/loadgrid/breakdown";
 import { GraphTypeSelect } from "@/features/loadgrid/GraphTypeSelect";
+import type { Season } from "@/store/features/demandTypes";
 import "./DemandCalendar.css";
+
+/** Year view fed by the demand API: seasons from `period/season-by-date`, and the opened
+ *  day's 96 blocks fetched on demand (`day` holds the latest one, `loadDay` requests it). */
+export type YearApi = {
+  seasons: Season[] | null;
+  day: { date: string; dem: number[] } | null;
+  loadDay: (date: string) => void;
+  /** The 12-month window shown (YYYY-MM-DD); every month in it gets a grid row, data or not. */
+  range: { from: string; to: string };
+  /** Step the window a year back (-1) or forward (+1); `canNext` is false at the latest window. */
+  shift: (dir: -1 | 1) => void;
+  canNext: boolean;
+};
 
 /* ---------- data shapes ---------- */
 type Data = {
@@ -143,6 +157,8 @@ export function DemandCalendar({
   extraControls,
   externalData,
   loading = false,
+  compactMonth = false,
+  yearApi,
 }: {
   section?: "month" | "year";
   modes?: Mode[];
@@ -154,6 +170,10 @@ export function DemandCalendar({
   extraControls?: ReactNode;
   externalData?: Data | null;
   loading?: boolean;
+  /** Month view: month picker sits inside the card beside the legend, and a 6th-week
+   *  overflow wraps back into row 1's empty leading cells. */
+  compactMonth?: boolean;
+  yearApi?: YearApi;
 }) {
   const [D, setD] = useState<Data | null>(null);
   const [PI, setPI] = useState<PlantInfo[] | null>(null);
@@ -193,7 +213,7 @@ export function DemandCalendar({
   }, [externalData, loading]);
 
   // Prevent rendering children while loading or while data has not arrived
-  if (loading || (externalData === null && !D)) {
+  if ((loading && !(yearApi && D)) || (externalData === null && !D)) {
     return <p className="dc-note">Loading demand forecast data…</p>;
   }
   if (err) return <p className="dc-note">Could not load demand-calendar data. Reload the page to try again.</p>;
@@ -208,6 +228,7 @@ export function DemandCalendar({
       supplyFocus={supplyFocus}
       hideKpis={hideKpis}
       extraControls={extraControls}
+      yearApi={yearApi}
     />
   ) : (
     <Calendar
@@ -219,11 +240,12 @@ export function DemandCalendar({
       hideKpis={hideKpis}
       hideSrcSelect={hideSrcSelect}
       extraControls={extraControls}
+      compactMonth={compactMonth}
     />
   );
 }
 
-function Calendar({ D, PI, modes, defaultMode, initialMonthKey, monthBarPortalRef, hideKpis = false, hideSrcSelect = false, extraControls }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode; initialMonthKey?: string; monthBarPortalRef?: RefObject<HTMLElement | null>; hideKpis?: boolean; hideSrcSelect?: boolean; extraControls?: ReactNode }) {
+function Calendar({ D, PI, modes, defaultMode, initialMonthKey, monthBarPortalRef, hideKpis = false, hideSrcSelect = false, extraControls, compactMonth = false }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode; initialMonthKey?: string; monthBarPortalRef?: RefObject<HTMLElement | null>; hideKpis?: boolean; hideSrcSelect?: boolean; extraControls?: ReactNode; compactMonth?: boolean }) {
   const months = useMemo(() => [...new Set(D.dates.map((d) => d.slice(0, 7)))], [D]);
 
   const [m, setM] = useState(() => {
@@ -330,12 +352,14 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey, monthBarPortalRe
   /* ----- calendar grid layout -----
    * `first` is this month's Monday-based starting column (0 = Mon .. 6 = Sun); the
    * slot array is sized to whole weeks so a 6-week month gets a 6th row instead of
-   * wrapping its last day(s) back into row 1. */
+   * wrapping its last day(s) back into row 1 — except with `compactMonth`, where the
+   * overflow days take row 1's empty leading cells so the month stays at 5 rows. */
   const y = +mk.slice(0, 4), mo = +mk.slice(5) - 1;
   const first = (new Date(y, mo, 1).getDay() + 6) % 7, nd = new Date(y, mo + 1, 0).getDate();
-  const totalSlots = Math.ceil((first + nd) / 7) * 7;
+  const wrapOverflow = compactMonth && first + nd > 35;
+  const totalSlots = wrapOverflow ? 35 : Math.ceil((first + nd) / 7) * 7;
   const slots: (number | null)[] = new Array(totalSlots).fill(null);
-  for (let d = 1; d <= nd; d++) slots[first + d - 1] = d;
+  for (let d = 1; d <= nd; d++) slots[(first + d - 1) % totalSlots] = d;
 
   const monthLabel = MON[mo] + " " + mk.slice(0, 4);
 
@@ -349,6 +373,7 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey, monthBarPortalRe
         isSupplyCal={isSupplyCal} showGraphType={showGraphType} setShowGraphType={setShowGraphType}
         groupBy={groupBy} setGroupBy={setGroupBy}
         hideSrcSelect={hideSrcSelect} extraControls={extraControls}
+        hideMonthBar={compactMonth}
       />
 
       {!hideKpis && <Kpis D={D} idx={idx} mode={mode} isSingle={isSingle} srcSer={srcSer} series={series} off={off} />}
@@ -357,7 +382,15 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey, monthBarPortalRe
         <Heatmap D={D} idx={idx} mk={mk} picked={openDay} setPicked={setOpenDay} showTip={showTip} hideTip={hideTip} />
       ) : (
         <section className="dc-card">
-          {graphGroups ? (
+          {compactMonth ? (
+            <div className="flex items-start justify-between gap-3">
+              <Legend
+                mode={mode} isSingle={isSingle} isSur={isSur} names={names} off={off}
+                toggleOff={toggleOff} demOn={demOn} setDemOn={setDemOn} srcInfo={srcInfo}
+              />
+              <MonthBar months={months} m={m} setM={setM} />
+            </div>
+          ) : graphGroups ? (
             <ul className="dc-legend">
               {graphGroups.map((g) => <li key={g.name}><button aria-pressed="true" disabled><span className="dc-sw" style={{ background: g.color }} />{g.name}</button></li>)}
             </ul>
@@ -431,22 +464,9 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey, monthBarPortalRe
   );
 }
 
-/* ---------- controls ---------- */
-function Controls({ months, m, setM, monthLabel, mode, setMode, view, setView, src, setSrc, D, PI, modes, monthBarSlot, isSupplyCal, showGraphType, setShowGraphType, groupBy, setGroupBy, hideSrcSelect = false, extraControls }: {
-  months: string[]; m: number; setM: (n: number) => void; monthLabel: string;
-  mode: Mode; setMode: (x: Mode) => void; view: View; setView: (v: View) => void;
-  src: string; setSrc: (s: string) => void; D: Data; PI: PlantInfo[]; modes: Mode[];
-  monthBarSlot: HTMLElement | null;
-  isSupplyCal: boolean; showGraphType: boolean; setShowGraphType: (b: boolean) => void;
-  groupBy: GroupBy; setGroupBy: (g: GroupBy) => void;
-  hideSrcSelect?: boolean; extraControls?: ReactNode;
-}) {
-  const srcOptions = useMemo(() => {
-    const types = [...new Set(PI.map((p) => p.t))];
-    return { cats: D.cats, types: types.map((t) => ({ t, plants: PI.map((p, k) => ({ ...p, k })).filter((p) => p.t === t && p.nz > 0) })).filter((g) => g.plants.length) };
-  }, [D, PI]);
-
-  const monthBar = (
+/* ---------- month prev/next + select ---------- */
+function MonthBar({ months, m, setM }: { months: string[]; m: number; setM: (n: number) => void }) {
+  return (
     <div className="dc-monthbar">
       <button aria-label="Previous month" disabled={m === 0} onClick={() => setM(Math.max(0, m - 1))}>◀</button>
       <select aria-label="Month" value={m} onChange={(e) => setM(+e.target.value)}>
@@ -455,6 +475,27 @@ function Controls({ months, m, setM, monthLabel, mode, setMode, view, setView, s
       <button aria-label="Next month" disabled={m === months.length - 1} onClick={() => setM(Math.min(months.length - 1, m + 1))}>▶</button>
     </div>
   );
+}
+
+/* ---------- controls ---------- */
+function Controls({ months, m, setM, monthLabel, mode, setMode, view, setView, src, setSrc, D, PI, modes, monthBarSlot, isSupplyCal, showGraphType, setShowGraphType, groupBy, setGroupBy, hideSrcSelect = false, extraControls, hideMonthBar = false }: {
+  months: string[]; m: number; setM: (n: number) => void; monthLabel: string;
+  mode: Mode; setMode: (x: Mode) => void; view: View; setView: (v: View) => void;
+  src: string; setSrc: (s: string) => void; D: Data; PI: PlantInfo[]; modes: Mode[];
+  monthBarSlot: HTMLElement | null;
+  isSupplyCal: boolean; showGraphType: boolean; setShowGraphType: (b: boolean) => void;
+  groupBy: GroupBy; setGroupBy: (g: GroupBy) => void;
+  hideSrcSelect?: boolean; extraControls?: ReactNode; hideMonthBar?: boolean;
+}) {
+  const srcOptions = useMemo(() => {
+    const types = [...new Set(PI.map((p) => p.t))];
+    return { cats: D.cats, types: types.map((t) => ({ t, plants: PI.map((p, k) => ({ ...p, k })).filter((p) => p.t === t && p.nz > 0) })).filter((g) => g.plants.length) };
+  }, [D, PI]);
+
+  const monthBar = hideMonthBar ? null : <MonthBar months={months} m={m} setM={setM} />;
+  // With the month picker in the card, a single-mode calendar has nothing left for this
+  // row (its month label would just repeat the picker), so the row is dropped.
+  if (hideMonthBar && !extraControls && modes.length <= 1) return null;
 
   const restControls = (
     <>
@@ -935,8 +976,10 @@ function tipHtml(D: Data, i: number, b: number, o: {
 }
 
 /* ---------- day-detail modal (big chart) ---------- */
-function DayModal({ D, i, mode, view, off, demOn, srcSer, srcInfo, series, names, onClose, setDay, showTip, hideTip }: {
+function DayModal({ D, i, mode, view, off, demOn, srcSer, srcInfo, series, names, onClose, setDay, showTip, hideTip, blockAxis = false }: {
   D: Data; i: number; mode: Mode; view: View; off: Set<number>; demOn: boolean;
+  /** Y-axis fitted to the day's range and X-axis as block numbers (1–96) instead of time. */
+  blockAxis?: boolean;
   srcSer: (i: number) => number[] | null; srcInfo: () => { name: string; fill: string; op: number; line: string };
   series: (i: number) => number[][]; names: string[];
   onClose: () => void; setDay: (i: number) => void;
@@ -1007,7 +1050,7 @@ function DayModal({ D, i, mode, view, off, demOn, srcSer, srcInfo, series, names
           <p className="dc-note">No data for this source on this day.</p>
         ) : (
           <BigDayChart
-            D={D} i={i} mode={mode} off={off} demOn={demOn}
+            D={D} i={i} mode={mode} off={off} demOn={demOn} blockAxis={blockAxis}
             single={single} srcInfo={srcInfo} series={series} names={names} view={view}
             showTip={showTip} hideTip={hideTip}
           />
@@ -1018,8 +1061,8 @@ function DayModal({ D, i, mode, view, off, demOn, srcSer, srcInfo, series, names
   );
 }
 
-function BigDayChart({ D, i, mode, off, demOn, single, srcInfo, series, names, view, showTip, hideTip }: {
-  D: Data; i: number; mode: Mode; off: Set<number>; demOn: boolean;
+function BigDayChart({ D, i, mode, off, demOn, single, srcInfo, series, names, view, showTip, hideTip, blockAxis = false }: {
+  D: Data; i: number; mode: Mode; off: Set<number>; demOn: boolean; blockAxis?: boolean;
   single: number[] | null; srcInfo: () => { name: string; fill: string; op: number; line: string };
   series: (i: number) => number[][]; names: string[]; view: View;
   showTip: (e: { clientX: number; clientY: number }, html: string) => void; hideTip: () => void;
@@ -1035,7 +1078,8 @@ function BigDayChart({ D, i, mode, off, demOn, single, srcInfo, series, names, v
 
   // per-day range
   let lo = 0, hi = 1;
-  if (isSingle && single) { lo = Math.min(0, ...single) * (Math.min(...single) < 0 ? 1.1 : 1); hi = (Math.max(0, ...single) || 1) * 1.08; }
+  if (isSingle && single && blockAxis) { const mn = Math.min(...single), mx = Math.max(...single), pad = (mx - mn || 1) * 0.08; lo = mn - pad; hi = mx + pad; }
+  else if (isSingle && single) { lo = Math.min(0, ...single) * (Math.min(...single) < 0 ? 1.1 : 1); hi = (Math.max(0, ...single) || 1) * 1.08; }
   else if (isSur) { lo = Math.min(0, ...sa) * 1.1; hi = Math.max(0, ...sa) * 1.1 || 1; }
   else if (st) { lo = Math.min(0, ...st.nT); hi = Math.max(...st.pT, demOn ? Math.max(...dem) : 0); }
 
@@ -1052,15 +1096,17 @@ function BigDayChart({ D, i, mode, off, demOn, single, srcInfo, series, names, v
     gridEls.push(<text key={"t" + v} x={mg.l - 8} y={yFn(v) + 4} textAnchor="end" className="num" fontSize={11} fill={cssv("--dc-muted")}>{v === 0 ? "0" : (v / 1000).toLocaleString("en-IN") + "k"}</text>);
   }
   const xticks: React.ReactNode[] = [];
-  for (let b = 0; b < 96; b += 8) xticks.push(<text key={"x" + b} x={x(b)} y={H - 8} textAnchor={b === 0 ? "start" : "middle"} className="num" fontSize={11} fill={cssv("--dc-muted")}>{bt(b)}</text>);
-  xticks.push(<text key="xend" x={x(95)} y={H - 8} textAnchor="end" className="num" fontSize={11} fill={cssv("--dc-muted")}>23:45</text>);
+  for (let b = 0; b < 96; b += 8) xticks.push(<text key={"x" + b} x={x(b)} y={H - 8} textAnchor={b === 0 ? "start" : "middle"} className="num" fontSize={11} fill={cssv("--dc-muted")}>{blockAxis ? b + 1 : bt(b)}</text>);
+  xticks.push(<text key="xend" x={x(95)} y={H - 8} textAnchor="end" className="num" fontSize={11} fill={cssv("--dc-muted")}>{blockAxis ? 96 : "23:45"}</text>);
 
   const body: React.ReactNode[] = [];
   const annot: React.ReactNode[] = [];
 
   if (isSingle && single) {
     const inf = mode === "dem" ? { fill: cssv("--dc-sur"), op: 0.28, line: cssv("--dc-text") } : srcInfo();
-    body.push(<path key="ar" d={fillToZero(single, g)} fill={inf.fill} fillOpacity={inf.op} />);
+    // With a fitted axis the area fills down to the axis floor rather than to zero.
+    const area = blockAxis ? fillToZero(single, { x, y: (v: number) => yFn(v === 0 ? ymin : v) }) : fillToZero(single, g);
+    body.push(<path key="ar" d={area} fill={inf.fill} fillOpacity={inf.op} />);
     body.push(<path key="ln" d={linePath(single, g)} fill="none" stroke={inf.line} strokeWidth={2} strokeLinejoin="round" />);
     const ss = sStats(single);
     ([[ss.pk, "Peak ", -10], [ss.mn, "Min ", 18]] as [number, string, number][]).forEach(([b, l, dy], q) => {
@@ -1134,8 +1180,25 @@ function BigDayChart({ D, i, mode, off, demOn, single, srcInfo, series, names, v
 /* ---------- year view (planning-horizon "Year ahead") ---------- */
 type YData = { cat: number[][]; dem: number[]; mn: number[]; mb: number[] };
 
-function YearView({ D, PI, modes, defaultMode, supplyFocus = false, hideKpis = false, extraControls }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode; supplyFocus?: boolean; hideKpis?: boolean; extraControls?: ReactNode }) {
+function YearView({ D, PI, modes, defaultMode, supplyFocus = false, hideKpis = false, extraControls, yearApi }: { D: Data; PI: PlantInfo[]; modes: Mode[]; defaultMode: Mode; supplyFocus?: boolean; hideKpis?: boolean; extraControls?: ReactNode; yearApi?: YearApi }) {
   const [openDay, setOpenDay] = useState<number | null>(null);
+
+  // API mode: opening a day (or stepping to another) requests that day from the API; the
+  // modal shows the fetched blocks once they arrive, the year series' copy until then.
+  const loadDay = yearApi?.loadDay;
+  useEffect(() => { if (loadDay && openDay != null) loadDay(D.dates[openDay]); }, [loadDay, openDay, D]);
+  const apiDay = yearApi?.day;
+  const modalD = useMemo((): Data => {
+    if (openDay == null || !apiDay || apiDay.date !== D.dates[openDay] || apiDay.dem.length !== 96) return D;
+    const dem = D.dem.slice(); dem[openDay] = apiDay.dem;
+    return { ...D, dem };
+  }, [D, openDay, apiDay]);
+
+  // API mode: season bands come from the season API (date ranges), otherwise the fixed months.
+  const seasonDefs = useMemo((): SeasonDef[] => {
+    if (!yearApi?.seasons) return SEASONS_DEF;
+    return yearApi.seasons.map((s) => ({ name: s.period_name, label: monthSpanLabel(s.from_date, s.to_date), months: seasonMonths(s.from_date, s.to_date), from: s.from_date, to: s.to_date }));
+  }, [yearApi?.seasons]);
   const [openMonth, setOpenMonth] = useState<string | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<string | null>(null);
   const monthRef = useRef<HTMLDivElement>(null);
@@ -1148,7 +1211,21 @@ function YearView({ D, PI, modes, defaultMode, supplyFocus = false, hideKpis = f
   }, []);
   const hideTip = useCallback(() => setTip(null), []);
 
-  const months = useMemo(() => [...new Set(D.dates.map((d) => d.slice(0, 7)))], [D]);
+  // API mode lists every month of the chosen window, so a window without data still gets its rows.
+  const yearRange = yearApi?.range;
+  const months = useMemo(() => {
+    if (!yearRange) return [...new Set(D.dates.map((d) => d.slice(0, 7)))];
+    const out: string[] = [];
+    let y = +yearRange.from.slice(0, 4), m = +yearRange.from.slice(5, 7);
+    const ek = yearRange.to.slice(0, 7);
+    for (let k = 0; k < 24; k++) {
+      const mk = y + "-" + String(m).padStart(2, "0");
+      out.push(mk);
+      if (mk === ek) break;
+      m++; if (m > 12) { m = 1; y++; }
+    }
+    return out;
+  }, [D, yearRange]);
   const Y = useMemo((): YData => {
     const n = D.dates.length, cat: number[][] = [], dem: number[] = [], mn: number[] = [], mb: number[] = [];
     for (let i = 0; i < n; i++) {
@@ -1166,7 +1243,7 @@ function YearView({ D, PI, modes, defaultMode, supplyFocus = false, hideKpis = f
       const d = D.dem[i], a = D.av[i];
       d.forEach((v, b) => { dm += v; sm += a[b]; if (v > pk.v) pk = { v, i, b }; if (a[b] > pkAv.v) pkAv = { v: a[b], i, b }; const x = a[b] - v; if (x < 0) def++; if (x < mn.v) mn = { v: x, i, b }; });
     });
-    const dl = (o: { i: number; b: number }) => { const d = D.dates[o.i]; return +d.slice(8) + " " + MON[+d.slice(5, 7) - 1].slice(0, 3) + " " + d.slice(2, 4) + " · B" + (o.b + 1) + " · " + bt(o.b); };
+    const dl = (o: { i: number; b: number }) => { const d = D.dates[o.i]; if (!d) return "—"; return +d.slice(8) + " " + MON[+d.slice(5, 7) - 1].slice(0, 3) + " " + d.slice(2, 4) + " · B" + (o.b + 1) + " · " + bt(o.b); };
     return [
       supplyFocus ? ["Peak availability", fmt(pkAv.v) + " MW", dl(pkAv), ""] : ["Peak demand", fmt(pk.v) + " MW", dl(pk), ""],
       ["Tightest block", (mn.v >= 0 ? "+" : "") + fmt(mn.v) + " MW", dl(mn), mn.v < 0 ? "neg" : "pos"],
@@ -1184,8 +1261,8 @@ function YearView({ D, PI, modes, defaultMode, supplyFocus = false, hideKpis = f
   };
 
   const activeSeasonDef = useMemo(() => {
-    return SEASONS_DEF.find((s) => s.name === selectedSeason) || null;
-  }, [selectedSeason]);
+    return seasonDefs.find((s) => s.name === selectedSeason) || null;
+  }, [selectedSeason, seasonDefs]);
 
   return (
     <div className="dc-root">
@@ -1205,15 +1282,24 @@ function YearView({ D, PI, modes, defaultMode, supplyFocus = false, hideKpis = f
       {/* 1. Grid plot heatmap chart BELOW */}
       <section className="dc-card">
         <div className="dc-ygh">
-          <b>Deficit blocks per date</b>
+          <b>{yearApi ? "Average demand per date" : "Deficit blocks per date"}</b>
           <span>
-            15-min blocks (0–96) where demand met exceeded total supply · click a date to open it full size · click a month to open its calendar below.
+            {yearApi
+              ? "Daily average of the 96 blocks (MW) · click a date to open it full size · click a month to open its calendar below."
+              : "15-min blocks (0–96) where demand met exceeded total supply · click a date to open it full size · click a month to open its calendar below."}
             {selectedSeason && (
               <span style={{ marginLeft: 8, color: "var(--dc-text)", fontWeight: 600 }}>
                 (Filtered by {selectedSeason} — <button style={{ border: "none", background: "none", color: "var(--dc-defhi)", cursor: "pointer", textDecoration: "underline", padding: 0 }} onClick={() => setSelectedSeason(null)}>clear filter</button>)
               </span>
             )}
           </span>
+          {yearApi && (
+            <div className="dc-monthbar" style={{ marginLeft: "auto" }}>
+              <button aria-label="Previous year" onClick={() => yearApi.shift(-1)}>◀</button>
+              <span className="num" style={{ minWidth: "13ch", textAlign: "center", fontWeight: 600 }}>{rangeLabel(yearApi.range)}</span>
+              <button aria-label="Next year" disabled={!yearApi.canNext} onClick={() => yearApi.shift(1)}>▶</button>
+            </div>
+          )}
         </div>
         <div className="dc-cal-scroll">
           <YearGrid
@@ -1222,6 +1308,7 @@ function YearView({ D, PI, modes, defaultMode, supplyFocus = false, hideKpis = f
             onDay={setOpenDay}
             onMonth={jumpToMonth}
             highlightMonths={activeSeasonDef?.months ?? null}
+            avgMode={!!yearApi}
           />
         </div>
       </section>
@@ -1239,8 +1326,8 @@ function YearView({ D, PI, modes, defaultMode, supplyFocus = false, hideKpis = f
 
       {openDay != null && (
         <DayModal
-          D={D} i={openDay} mode="stack" view="cat" off={EMPTY_SET} demOn
-          srcSer={() => null} srcInfo={DEF_SRCINFO} series={(i) => D.C[i]} names={D.cats}
+          D={modalD} i={openDay} mode={yearApi ? "dem" : "stack"} view="cat" off={EMPTY_SET} demOn blockAxis={!!yearApi}
+          srcSer={() => null} srcInfo={DEF_SRCINFO} series={(i) => modalD.C[i]} names={D.cats}
           onClose={() => setOpenDay(null)} setDay={setOpenDay} showTip={showTip} hideTip={hideTip}
         />
       )}
@@ -1258,6 +1345,8 @@ function YearView({ D, PI, modes, defaultMode, supplyFocus = false, hideKpis = f
           selectedSeason={selectedSeason}
           onSelectSeason={(s) => setSelectedSeason((prev) => (prev === s ? null : s))}
           supplyFocus={supplyFocus}
+          seasonDefs={seasonDefs}
+          demandMode={!!yearApi}
         />
       </section>
 
@@ -1287,7 +1376,30 @@ function calcBoxStats(arr: number[]): BoxStats {
   };
 }
 
-const SEASONS_DEF: { name: string; label: string; months: number[] }[] = [
+// `from`/`to` (YYYY-MM-DD) are set for seasons from the season API; the fixed list goes by month.
+type SeasonDef = { name: string; label: string; months: number[]; from?: string; to?: string };
+
+/** "Nov 26 – Oct 27" for a year window. */
+const rangeLabel = (r: { from: string; to: string }) =>
+  MON[+r.from.slice(5, 7) - 1].slice(0, 3) + " " + r.from.slice(2, 4) + " – " + MON[+r.to.slice(5, 7) - 1].slice(0, 3) + " " + r.to.slice(2, 4);
+
+/** "Nov" or "Jan – Feb" for a season's date range. */
+function monthSpanLabel(from: string, to: string): string {
+  const a = MON[+from.slice(5, 7) - 1].slice(0, 3), b = MON[+to.slice(5, 7) - 1].slice(0, 3);
+  return a === b ? a : a + " – " + b;
+}
+/** Calendar months (1–12) a season's date range touches. */
+function seasonMonths(from: string, to: string): number[] {
+  const out: number[] = [];
+  let y = +from.slice(0, 4), m = +from.slice(5, 7);
+  const ey = +to.slice(0, 4), em = +to.slice(5, 7);
+  while (y < ey || (y === ey && m <= em)) { if (!out.includes(m)) out.push(m); m++; if (m > 12) { m = 1; y++; } }
+  return out;
+}
+const seasonOf = (defs: SeasonDef[], ds: string) =>
+  defs.find((s) => (s.from && s.to ? ds >= s.from && ds <= s.to : s.months.includes(+ds.slice(5, 7))));
+
+const SEASONS_DEF: SeasonDef[] = [
   { name: "Winter", label: "Jan – Feb", months: [1, 2] },
   { name: "Spring Onset", label: "Mar", months: [3] },
   { name: "Summer Peak", label: "Apr – May", months: [4, 5] },
@@ -1299,7 +1411,7 @@ const SEASONS_DEF: { name: string; label: string; months: number[] }[] = [
   { name: "Late Winter", label: "Dec", months: [12] },
 ];
 
-function YearCharts({ D, months, onDay, showTip, hideTip, selectedSeason, onSelectSeason, supplyFocus = false, }
+function YearCharts({ D, months, onDay, showTip, hideTip, selectedSeason, onSelectSeason, supplyFocus = false, seasonDefs = SEASONS_DEF, demandMode = false }
   : {
     D: Data;
     Y: YData;
@@ -1310,6 +1422,9 @@ function YearCharts({ D, months, onDay, showTip, hideTip, selectedSeason, onSele
     selectedSeason?: string | null;
     onSelectSeason?: (seasonName: string) => void;
     supplyFocus?: boolean;
+    seasonDefs?: SeasonDef[];
+    /** Box per day from the demand blocks themselves (API mode) instead of supply − demand. */
+    demandMode?: boolean;
   }) {
   const n = D.dates.length;
   const [hoverI, setHoverI] = useState<number | null>(null);
@@ -1319,17 +1434,19 @@ function YearCharts({ D, months, onDay, showTip, hideTip, selectedSeason, onSele
   const x = (i: number) => m.l + (i * (W - m.l - m.r)) / Math.max(1, n - 1);
 
   const dayBoxes = useMemo(() => {
-    return D.dates.map((_, i) => calcBoxStats(sur(D, i)));
-  }, [D]);
+    return D.dates.map((_, i) => calcBoxStats(demandMode ? D.dem[i] : sur(D, i)));
+  }, [D, demandMode]);
+  const dayAvg = useMemo(() => D.dem.map((a) => a.reduce((x, y) => x + y, 0) / (a.length || 1)), [D]);
 
   const [globalMin, globalMax] = useMemo(() => {
-    let min = 0, max = 0;
+    // Demand never goes negative, so its axis hugs the data instead of starting at zero.
+    let min = demandMode ? Infinity : 0, max = 0;
     dayBoxes.forEach((b) => {
       if (b.min < min) min = b.min;
       if (b.max > max) max = b.max;
     });
-    return [min, max || 1];
-  }, [dayBoxes]);
+    return [min === Infinity ? 0 : min, max || 1];
+  }, [dayBoxes, demandMode]);
 
   const step = niceStep(globalMax - globalMin || 1, 5);
   const ymax = Math.ceil(globalMax / step) * step;
@@ -1341,10 +1458,7 @@ function YearCharts({ D, months, onDay, showTip, hideTip, selectedSeason, onSele
     const bands: { name: string; sub: string; startI: number; endI: number; months: number[] }[] = [];
     let curIdx = 0;
 
-    const getSeason = (ds: string) => {
-      const mo = +ds.slice(5, 7);
-      return SEASONS_DEF.find((s) => s.months.includes(mo)) || { name: "Other", label: "", months: [] };
-    };
+    const getSeason = (ds: string) => seasonOf(seasonDefs, ds) || { name: "Other", label: "", months: [] };
 
     let curSeason = getSeason(D.dates[0]);
 
@@ -1358,7 +1472,7 @@ function YearCharts({ D, months, onDay, showTip, hideTip, selectedSeason, onSele
     }
     bands.push({ name: curSeason.name, sub: curSeason.label, startI: curIdx, endI: n - 1, months: curSeason.months });
     return bands;
-  }, [D.dates, n]);
+  }, [D.dates, n, seasonDefs]);
 
   const yGridEls: React.ReactNode[] = [];
   for (let v = ymin; v <= ymax + 1e-6; v += step) {
@@ -1387,7 +1501,13 @@ function YearCharts({ D, months, onDay, showTip, hideTip, selectedSeason, onSele
 
     const b = dayBoxes[i];
     const d = D.dates[i];
-    const tipHtml = `
+    const tipHtml = demandMode ? `
+      <h4>${+d.slice(8)} ${MON[+d.slice(5, 7) - 1].slice(0, 3)} ${d.slice(0, 4)}</h4>
+      <div class="r"><span>Max</span><b>${fmt(b.max)}</b></div>
+      <div class="r"><span>Average</span><b>${fmt(dayAvg[i])}</b></div>
+      <div class="r"><span>Median</span><b>${fmt(b.med)}</b></div>
+      <div class="r"><span>Min</span><b>${fmt(b.min)}</b></div>
+    ` : `
       <h4>${+d.slice(8)} ${MON[+d.slice(5, 7) - 1].slice(0, 3)} ${d.slice(0, 4)}</h4>
       <div class="r"><span>Max Surplus</span><b class="pos">+${fmt(b.max)}</b></div>
       <div class="r"><span>Q3 (75%)</span><b>${fmt(b.q3)}</b></div>
@@ -1527,9 +1647,8 @@ function YearCharts({ D, months, onDay, showTip, hideTip, selectedSeason, onSele
             const yQ3 = yFn(b.q3);
             const yMax = yFn(b.max);
 
-            const dMo = +D.dates[i].slice(5, 7);
             const inSelectedSeason = selectedSeason
-              ? SEASONS_DEF.find((s) => s.name === selectedSeason)?.months.includes(dMo)
+              ? seasonOf(seasonDefs, D.dates[i])?.name === selectedSeason
               : true;
 
             const opacity = inSelectedSeason ? 1 : 0.2;
@@ -1666,13 +1785,28 @@ function YearGrid({
   onDay,
   onMonth,
   highlightMonths,
+  avgMode = false,
 }: {
   D: Data;
   months: string[];
   onDay: (i: number) => void;
   onMonth: (mk: string) => void;
   highlightMonths?: number[] | null;
+  /** Each cell shows the day's average demand (MW) and Total the month's average, instead
+   *  of deficit-block counts. */
+  avgMode?: boolean;
 }) {
+  // Average-demand mode: per-day mean of the 96 blocks, shaded across the year's range with
+  // the same red scale as the deficit counts.
+  const dayAvg = useMemo(() => D.dem.map((a) => a.reduce((x, y) => x + y, 0) / (a.length || 1)), [D]);
+  const [avgLo, avgHi] = useMemo(() => [Math.min(...dayAvg), Math.max(...dayAvg)], [dayAvg]);
+  const ac = (v: number) => {
+    const t = Math.min(1, Math.sqrt(avgHi > avgLo ? (v - avgLo) / (avgHi - avgLo) : 0));
+    return {
+      background: `color-mix(in srgb, var(--dc-defhi) ${(t * 100).toFixed(1)}%, var(--dc-mid))`,
+      color: t > 0.55 ? "#fff" : cssv("--dc-text"),
+    };
+  };
   // Day-level cell color (scaled up to ~64 blocks/day)
   const cc = (c: number) => {
     if (!c) return undefined;
@@ -1687,17 +1821,18 @@ function YearGrid({
   const monthTotals = useMemo(() => {
     return months.map((mk) => {
       const y = +mk.slice(0, 4), mo = +mk.slice(5) - 1, nd = new Date(y, mo + 1, 0).getDate();
-      let tot = 0;
+      let tot = 0, cnt = 0;
       for (let d = 1; d <= nd; d++) {
         const ds = `${mk}-${String(d).padStart(2, "0")}`;
         const i = D.dates.indexOf(ds);
         if (i >= 0) {
-          tot += sur(D, i).filter((v) => v < 0).length;
+          if (avgMode) { tot += dayAvg[i]; cnt++; }
+          else tot += sur(D, i).filter((v) => v < 0).length;
         }
       }
-      return tot;
+      return avgMode ? (cnt ? tot / cnt : 0) : tot;
     });
-  }, [D, months]);
+  }, [D, months, avgMode, dayAvg]);
 
   const maxMonthTotal = useMemo(() => Math.max(1, ...monthTotals), [monthTotals]);
 
@@ -1722,7 +1857,7 @@ function YearGrid({
         <tr>
           <th />
           <>{Array.from({ length: 31 }, (_, k) => <th key={k}>{k + 1}</th>)}</>
-          <th style={{ textAlign: "right", paddingRight: 4 }}>Total</th>
+          <th style={{ textAlign: "right", paddingRight: 4 }}>{avgMode ? "Avg" : "Total"}</th>
         </tr>
       </thead>
       <tbody>
@@ -1744,6 +1879,14 @@ function YearGrid({
             if (d > nd) { cells.push(<td key={d} className="na" />); continue; }
             const ds = `${mk}-${String(d).padStart(2, "0")}`, i = D.dates.indexOf(ds);
             if (i < 0) { cells.push(<td key={d} className="na" />); continue; }
+            if (avgMode) {
+              cells.push(
+                <td key={d} className="d" style={ac(dayAvg[i])} title={`${d} ${MON[mo]} ${y}: average demand ${fmt(dayAvg[i])} MW`} onClick={() => onDay(i)}>
+                  {fmt(dayAvg[i])}
+                </td>
+              );
+              continue;
+            }
             const c = sur(D, i).filter((v) => v < 0).length;
             cells.push(
               <td
@@ -1769,13 +1912,21 @@ function YearGrid({
                 {MON[mo].slice(0, 3)} {mk.slice(2, 4)}
               </th>
               {cells}
-              <td
-                className="tot"
-                style={totalCc(tot)}
-                title={`${MON[mo]} ${y}: ${tot} total deficit blocks (${(tot / 4).toFixed(1)} h)`}
-              >
-                {tot}
-              </td>
+              {avgMode ? (
+                tot ? (
+                  <td className="tot" style={ac(tot)} title={`${MON[mo]} ${y}: average demand ${fmt(tot)} MW`}>
+                    {fmt(tot)}
+                  </td>
+                ) : <td className="tot" />
+              ) : (
+                <td
+                  className="tot"
+                  style={totalCc(tot)}
+                  title={`${MON[mo]} ${y}: ${tot} total deficit blocks (${(tot / 4).toFixed(1)} h)`}
+                >
+                  {tot}
+                </td>
+              )}
             </tr>
           );
         })}

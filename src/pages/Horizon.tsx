@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // import { useDispatch, useSelector } from "react-redux";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 // import type { AppDispatch, RootState } from "../store/slice/demandApiSlice"; // Adjust path to your store
-import { fetchDemandForecast, fetchWeekDemandForecast } from "@/store/slice/demandApiSlice";
+import { fetchDayDemandForecast, fetchDemandForecast, fetchSeasons, fetchWeekDemandForecast, fetchYearDayDemand, fetchYearDemandForecast } from "@/store/slice/demandApiSlice";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { CAD, MODS, MON, NOW, TFS, modName, tfIdx, tfName } from "@/data/engine";
-import { G } from "@/data/model";
+import { G, type ChartSpec } from "@/data/model";
 import { Chart, Legend } from "@/components/chart/Chart";
-import { CAL_SETS, DemandCalendar } from "@/components/DemandCalendar";
+import { CAL_SETS, DemandCalendar, type Mode, type YearApi } from "@/components/DemandCalendar";
 import { Kpis } from "@/components/Kpis";
 import { PageHead, Section } from "@/components/layout";
 import { Pill } from "@/components/status";
@@ -66,7 +66,7 @@ export function HorizonPage() {
   const { openDrill } = usePanels();
   const ti = tfIdx(tf);
 
-  const { data: demandData, loading: demandLoading, weekData, weekLoading, } = useAppSelector((state) => state.demand);
+  const { data: demandData, loading: demandLoading, weekData, weekLoading, dayData, dayLoading, dayError, yearData, yearLoading, yearError, seasons, yearDay } = useAppSelector((state) => state.demand);
 
   const [weekOffset, setWeekOffset] = useState(0);
   // useEffect(() => {
@@ -122,10 +122,44 @@ export function HorizonPage() {
   const [market, setMarket] = useState(MARKETS[0]);
   const [exchange, setExchange] = useState(EXCHANGES[0]);
   const [dayGroupBy, setDayGroupBy] = useState<GroupBy>("category");
-  const [dayOffset, setDayOffset] = useState(0);
+  // Day-ahead opens on tomorrow (offset from today).
+  const [dayOffset, setDayOffset] = useState(1);
+  useEffect(() => {
+    if (mod === "demand" && tf === "da") {
+      const d = new Date(NOW); d.setDate(d.getDate() + dayOffset);
+      dispatch(fetchDayDemandForecast({ date: formatIso(d), location_id: 10030, forcasted_by: "System" }));
+    }
+  }, [dispatch, mod, tf, dayOffset]);
+
+  // Year ahead (Demand): a 12-month window starting at the current month — but never before
+  // Nov 2026, where the forecast begins — so Nov 2026 – Oct 2027 holds until 30 Nov, then rolls
+  // a month at a time (Dec 2026 – Nov 2027 from 1 Dec). The picker steps it a year back, never
+  // past the default.
+  const [yearOffset, setYearOffset] = useState(0);
+  const yearRange = useMemo(() => {
+    const cur = new Date(NOW.getFullYear(), NOW.getMonth(), 1), first = new Date(2026, 10, 1);
+    const base = cur < first ? first : cur;
+    const start = new Date(base.getFullYear() + yearOffset, base.getMonth(), 1);
+    const end = new Date(start.getFullYear() + 1, start.getMonth(), 0);
+    return { from: formatIso(start), to: formatIso(end) };
+  }, [yearOffset]);
+  useEffect(() => {
+    if (mod === "demand" && tf === "yr") {
+      dispatch(fetchYearDemandForecast({ data_id: 102140, from_date: yearRange.from, to_date: yearRange.to, location_id: 10030, forcasted_by: "System", table: "daily" }));
+      dispatch(fetchSeasons({ start_date: yearRange.from, end_date: yearRange.to }));
+    }
+  }, [dispatch, mod, tf, yearRange]);
+  const loadYearDay = useCallback((date: string) => {
+    dispatch(fetchYearDayDemand({ date, data_id: 102140, location_id: 10030, forcasted_by: "System", table: "daily" }));
+  }, [dispatch]);
+  const yearApi = useMemo((): YearApi => ({
+    seasons, day: yearDay, loadDay: loadYearDay, range: yearRange,
+    shift: (dir) => setYearOffset((o) => Math.min(0, o + dir)), canNext: yearOffset < 0,
+  }), [seasons, yearDay, loadYearDay, yearRange, yearOffset]);
   if (tf === "mo" && calSet) {
     const isFocusedMonth = mod === "demand" || mod === "supply" || mod === "mi";
-    const liftMonthBar = isFocusedMonth;
+    // Demand's month picker lives inside the calendar card (compactMonth), so it has no header row.
+    const liftMonthBar = isFocusedMonth && mod !== "demand";
     const isMarket = mod === "mi";
     // return (
     //   <>
@@ -165,11 +199,13 @@ export function HorizonPage() {
 
     return (
       <>
-        <PageHead
-          title={isFocusedMonth ? null : <>{calSet.label} <span className="font-normal text-muted-foreground">· {tfName(tf)}</span></>}
-          after={liftMonthBar ? <div ref={monthBarSlotRef} className="dc-root flex-1" /> : undefined}
-        />
-        <div className="mt-5">
+        {mod !== "demand" && (
+          <PageHead
+            title={isFocusedMonth ? null : <>{calSet.label} <span className="font-normal text-muted-foreground">· {tfName(tf)}</span></>}
+            after={liftMonthBar ? <div ref={monthBarSlotRef} className="dc-root flex-1" /> : undefined}
+          />
+        )}
+        <div className={mod === "demand" ? "" : "mt-5"}>
           <DemandCalendar
             key={mod}
             section="month"
@@ -180,6 +216,7 @@ export function HorizonPage() {
             hideSrcSelect={isMarket}
             externalData={mod === "demand" ? demandData : undefined}
             loading={mod === "demand" ? demandLoading : false}
+            compactMonth={mod === "demand"}
             extraControls={isMarket ? (
               <>
                 <div className="dc-seg" role="group" aria-label="Market">
@@ -220,10 +257,12 @@ export function HorizonPage() {
             UP declared-capacity vs demand across the whole year. Hover the charts or grid for values; click a day to open it full size, or a month to jump to its calendar.
           </p> */}
         </PageHead>
+        {mod === "demand" && yearError && <p className="mt-5 text-sm text-destructive">{yearError}</p>}
         <div className="mt-5">
           <DemandCalendar
             key={mod}
             section="year" supplyFocus={mod === "supply" || isMarket} hideKpis={isFocusedYear}
+            {...(mod === "demand" ? { externalData: yearData, loading: yearLoading, modes: ["dem"] as Mode[], defaultMode: "dem" as Mode, yearApi } : {})}
             extraControls={isMarket ? (
               <>
                 <div className="dc-seg" role="group" aria-label="Market">
@@ -314,6 +353,14 @@ export function HorizonPage() {
   const isSupplyDay = mod === "supply" && tf === "da";
   const isDemandDay = mod === "demand" && tf === "da";
   const isDayFocus = isSupplyDay || isDemandDay;
+  // Day-ahead Demand plots the API's 96 blocks for the selected date.
+  const dayChart: ChartSpec | null = isDemandDay && dayData?.dem.length
+    ? {
+      x: Array.from({ length: 96 }, (_, i) => String(i + 1)),
+      lines: [{ name: "Forecast", v: dayData.dem[0], color: "--demand", w: 2.2 }],
+      unit: "MW", yl: "Demand (MW)",
+    }
+    : null;
 
   const marketExchangeControls = (
     <div className="flex items-center gap-2">
@@ -376,7 +423,7 @@ export function HorizonPage() {
                   isDemand={isDemandWeek} // <--- Ensure isDemand is passed here
                 />
               ) : isDayFocus ? (
-                <DayBadge dayOffset={dayOffset} setDayOffset={setDayOffset} />
+                <DayBadge dayOffset={dayOffset} setDayOffset={setDayOffset} isDemand={isDemandDay} />
               ) : undefined
             }
           >
@@ -391,6 +438,22 @@ export function HorizonPage() {
                 externalData={isDemandWeek ? weekData : undefined}
                 loading={isDemandWeek ? weekLoading : false}
               />
+            ) : isDemandDay ? (
+              dayLoading ? <p className="dc-note">Loading day's demand forecast data…</p>
+                : dayError ? <p className="text-sm text-destructive">{dayError}</p>
+                  : dayChart ? (
+                    <>
+                      <Legend spec={dayChart} />
+                      <div className="mt-3">
+                        <Chart spec={dayChart} height={490} onPick={(i) => openDrill(mod, tf, i)} />
+                      </div>
+                    </>
+                  ) : (
+                    // Same footprint as the chart (legend row + 490px plot) so the card doesn't shrink.
+                    <div className="mt-3 grid place-items-center" style={{ height: 490 + 28 }}>
+                      <p className="text-sm text-muted-foreground">No forecast data for this date.</p>
+                    </div>
+                  )
             ) : g.chart ? (
               <>
                 <Legend spec={g.chart} />
@@ -561,13 +624,12 @@ function dayRangeLabel(d: Date): string {
   return pad(d.getDate()) + " " + MON[d.getMonth()] + " " + d.getFullYear();
 }
 
-/** The day navigator for Demand's and Supply's Day-ahead pages — a placeholder like
- *  Supply's Graph Type picker: paging changes this label only, not the chart (same
- *  "Total supply (DC)" / demand-forecast chart as before). Only ±1 day gets the
- *  "Yesterday/Today/Tomorrow" label; further out it's just the date. Bounded to the
- *  real current week (Monday–Sunday around today) — no paging before or after that
- *  week. */
-function DayBadge({ dayOffset, setDayOffset }: { dayOffset: number; setDayOffset: (n: number) => void }) {
+/** The day navigator for Demand's and Supply's Day-ahead pages. On Demand it picks the
+ *  date the API is queried for (from_date = to_date): unbounded into the past, up to
+ *  7 days ahead of today. On Supply it's a placeholder bounded to the current week
+ *  (Monday–Sunday around today) and doesn't change the chart. Only ±1 day gets the
+ *  "Yesterday/Today/Tomorrow" label; further out it's just the date. */
+function DayBadge({ dayOffset, setDayOffset, isDemand = false }: { dayOffset: number; setDayOffset: (n: number) => void; isDemand?: boolean }) {
   const { label, minOffset, maxOffset } = useMemo(() => {
     const daysSinceMonday = (NOW.getDay() + 6) % 7;
     const date = new Date(NOW); date.setDate(date.getDate() + dayOffset);
@@ -575,10 +637,10 @@ function DayBadge({ dayOffset, setDayOffset }: { dayOffset: number; setDayOffset
     const relative = dayOffset === 0 ? "Today" : dayOffset === 1 ? "Tomorrow" : dayOffset === -1 ? "Yesterday" : null;
     return {
       label: relative ? relative + ", " + range : range,
-      minOffset: -daysSinceMonday,
-      maxOffset: 6 - daysSinceMonday,
+      minOffset: isDemand ? -Infinity : -daysSinceMonday,
+      maxOffset: isDemand ? 7 : 6 - daysSinceMonday,
     };
-  }, [dayOffset]);
+  }, [dayOffset, isDemand]);
   return (
     <div className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border bg-card p-1 text-[13px]">
       <button
