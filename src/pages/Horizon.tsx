@@ -2,18 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // import { useDispatch, useSelector } from "react-redux";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 // import type { AppDispatch, RootState } from "../store/slice/demandApiSlice"; // Adjust path to your store
-import { fetchDayDemandForecast, fetchDemandForecast, fetchSeasons, fetchWeekDemandForecast, fetchYearDayDemand, fetchYearDemandForecast } from "@/store/slice/demandApiSlice";
+import { fetchDemandForecast, fetchSeasons, fetchWeekDemandForecast, fetchYearDayDemand, fetchYearDemandForecast } from "@/store/slice/demandApiSlice";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
-import { CAD, MODS, MON, NOW, TFS, modName, tfIdx, tfName } from "@/data/engine";
-import { G, type ChartSpec } from "@/data/model";
+import { CAD, MODS, MON, NOW, TFS, modName, tfIdx, tfName, type TfId } from "@/data/engine";
+import { G } from "@/data/model";
 import { Chart, Legend } from "@/components/chart/Chart";
 import { CAL_SETS, DemandCalendar, type Mode, type YearApi } from "@/components/DemandCalendar";
 import { Kpis } from "@/components/Kpis";
 import { PageHead, Section } from "@/components/layout";
 import { Pill } from "@/components/status";
 import { WeekSupplyGrid, WINDOW_START } from "@/components/WeekSupplyGrid";
-import { useHorizon, useHorizonModule } from "@/lib/horizon";
+import { useHorizon, useHorizonModule, type RulerSel } from "@/lib/horizon";
 import { usePanels } from "@/lib/panels";
 import { cn } from "@/lib/utils";
 import LoadGrid, { hasLoadGrid } from "@/features/loadgrid/LoadGrid";
@@ -22,6 +22,7 @@ import { GraphTypeSelect } from "@/features/loadgrid/GraphTypeSelect";
 import type { GroupBy } from "@/features/loadgrid/breakdown";
 import { chartTitle, KeyDetails } from "./Module";
 import { ReportLibrary } from "./Reports";
+import { DayAheadForecastPage } from "@/features/dayahead/DayAheadForecastPage";
 
 const MARKETS = ["DAM", "RTM", "GDAM", "HPDAM"];
 const EXCHANGES = ["IEX", "PXIL", "HPX"];
@@ -59,16 +60,22 @@ function getWeekRange(offset: number) {
 
 
 
-export function HorizonPage() {
+/** `tf` / `mod` override the URL's planning horizon and module — used by the All-modules page to
+ *  show the same view for a module at a given horizon. */
+export function HorizonPage({ tf: tfProp, mod: modProp }: { tf?: TfId; mod?: RulerSel } = {}) {
   const dispatch = useAppDispatch();
-  const { mod } = useHorizonModule();
-  const { tf } = useHorizon();
+  const hm = useHorizonModule();
+  const hz = useHorizon();
+  const mod = modProp ?? hm.mod;
+  const tf = tfProp ?? hz.tf;
   const { openDrill } = usePanels();
   const ti = tfIdx(tf);
 
-  const { data: demandData, loading: demandLoading, weekData, weekLoading, dayData, dayLoading, dayError, yearData, yearLoading, yearError, seasons, yearDay } = useAppSelector((state) => state.demand);
+  const { data: demandData, loading: demandLoading, weekData, weekLoading, yearData, yearLoading, yearError, seasons, yearDay } = useAppSelector((state) => state.demand);
 
   const [weekOffset, setWeekOffset] = useState(0);
+  // The week grid lays its days out from the same Monday the week API is queried from.
+  const currentMonday = useMemo(() => getWeekRange(0).mondayDate, []);
   // useEffect(() => {
   //   if (mod === "demand") {
   //     dispatch(
@@ -124,12 +131,6 @@ export function HorizonPage() {
   const [dayGroupBy, setDayGroupBy] = useState<GroupBy>("category");
   // Day-ahead opens on tomorrow (offset from today).
   const [dayOffset, setDayOffset] = useState(1);
-  useEffect(() => {
-    if (mod === "demand" && tf === "da") {
-      const d = new Date(NOW); d.setDate(d.getDate() + dayOffset);
-      dispatch(fetchDayDemandForecast({ date: formatIso(d), location_id: 10030, forcasted_by: "System" }));
-    }
-  }, [dispatch, mod, tf, dayOffset]);
 
   // Year ahead (Demand): a 12-month window starting at the current month — but never before
   // Nov 2026, where the forecast begins — so Nov 2026 – Oct 2027 holds until 30 Nov, then rolls
@@ -353,14 +354,8 @@ export function HorizonPage() {
   const isSupplyDay = mod === "supply" && tf === "da";
   const isDemandDay = mod === "demand" && tf === "da";
   const isDayFocus = isSupplyDay || isDemandDay;
-  // Day-ahead Demand plots the API's 96 blocks for the selected date.
-  const dayChart: ChartSpec | null = isDemandDay && dayData?.dem.length
-    ? {
-      x: Array.from({ length: 96 }, (_, i) => String(i + 1)),
-      lines: [{ name: "Forecast", v: dayData.dem[0], color: "--demand", w: 2.2 }],
-      unit: "MW", yl: "Demand (MW)",
-    }
-    : null;
+  // Day-ahead Demand is its own full-height Forecast page (API forecast + placeholders).
+  if (isDemandDay) return <DayAheadForecastPage />;
 
   const marketExchangeControls = (
     <div className="flex items-center gap-2">
@@ -437,23 +432,8 @@ export function HorizonPage() {
                 mod={isDemandWeek ? "demand" : "supply"}
                 externalData={isDemandWeek ? weekData : undefined}
                 loading={isDemandWeek ? weekLoading : false}
+                baseDate={currentMonday}
               />
-            ) : isDemandDay ? (
-              dayLoading ? <p className="dc-note">Loading day's demand forecast data…</p>
-                : dayError ? <p className="text-sm text-destructive">{dayError}</p>
-                  : dayChart ? (
-                    <>
-                      <Legend spec={dayChart} />
-                      <div className="mt-3">
-                        <Chart spec={dayChart} height={490} onPick={(i) => openDrill(mod, tf, i)} />
-                      </div>
-                    </>
-                  ) : (
-                    // Same footprint as the chart (legend row + 490px plot) so the card doesn't shrink.
-                    <div className="mt-3 grid place-items-center" style={{ height: 490 + 28 }}>
-                      <p className="text-sm text-muted-foreground">No forecast data for this date.</p>
-                    </div>
-                  )
             ) : g.chart ? (
               <>
                 <Legend spec={g.chart} />

@@ -67,8 +67,11 @@ export function AppShell() {
   // The Long-term horizon lays out the full-screen load-profile / box-plot grids and the wide
   // analytics view, so it claims the full window too.
   const isHorizonLongTerm = pathname === "/horizon" && planTf === "lt";
+  // All modules → Demand renders the Planning-horizon views at every horizon (see ModulePage), and
+  // uses the full window.
+  const isModuleDemandPlan = pathname === "/modules/demand";
   // Pages that lay out every module or every horizon use the full window; focused pages stay capped.
-  const fullWidth = isCommand || isModulesIndex || pathname === "/snapshot" || pathname.endsWith("/row") || isHorizonCalendar || isHorizonLongTerm || isCellTuneup || isCellForecastAcc;
+  const fullWidth = isCommand || isModulesIndex || pathname === "/snapshot" || pathname.endsWith("/row") || isHorizonCalendar || isHorizonLongTerm || isCellTuneup || isCellForecastAcc || isModuleDemandPlan;
 
   return (
     <TooltipProvider delayDuration={150}>

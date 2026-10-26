@@ -59,6 +59,19 @@ export interface SeasonApiResponse {
     seasons: Season[];
 }
 
+/** One location's weather for a day: each field is 96 blocks keyed "1".."96". */
+export type WeatherBlocks = Record<
+    "cloudCover" | "relativeHumidity" | "temperature" | "temperatureDewPoint" | "temperatureFeelsLike" | "windGust" | "windSpeed",
+    Record<string, number>
+>;
+
+export interface WeatherApiResponse {
+    date: string;
+    ref_date: string | null;
+    client_id: string;
+    locations: Record<string, { current: WeatherBlocks; reference: unknown }>;
+}
+
 export interface DemandState {
     data: DemandCalendarData | null;
     loading: boolean;
@@ -78,4 +91,9 @@ export interface DemandState {
     yearDay: { date: string; dem: number[] } | null;
     yearDayRequestId: string | null;
     yearRequestId: string | null;
+    // Weather for every location on one date (weather/multi).
+    weather: { date: string; locations: Record<string, WeatherBlocks> } | null;
+    weatherLoading: boolean;
+    weatherError: string | null;
+    weatherRequestId: string | null;
 }

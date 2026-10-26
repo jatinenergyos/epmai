@@ -23,6 +23,7 @@ import { usePanels } from "@/lib/panels";
 import { cn } from "@/lib/utils";
 import { NotFound } from "./NotFound";
 import { ReportLibrary } from "./Reports";
+import { HorizonPage } from "./Horizon";
 
 export const chartTitle = (m: ModId, tf: TfId) =>
   ({
@@ -245,6 +246,8 @@ export function ModulePage() {
   const { tf } = useModuleTf();
   const { panel, openDrill } = usePanels();
   if (!isMod(moduleId)) return <NotFound />;
+  // Demand shows the same views as the Planning-horizon pages, at every horizon.
+  if (moduleId === "demand") return <HorizonPage tf={tf} mod="demand" />;
   const mod = moduleId, g = G(mod, tf), ti = tfIdx(tf);
   const picked = panel?.kind === "drill" && panel.mod === mod && panel.tf === tf ? panel.i : null;
   const unitWord = tf === "id" || tf === "da" ? "time block" : tf === "dr" ? "5-minute slot" : "period";
