@@ -6,6 +6,8 @@ import type {
     DemandState,
     Season,
     SeasonApiResponse,
+    WeatherApiResponse,
+    WeatherBlocks,
 } from "../features/demandTypes";
 import BASE_URL from '../../../BASE_URL'
 
@@ -27,6 +29,10 @@ const initialState: DemandState = {
     yearDay: null,
     yearDayRequestId: null,
     yearRequestId: null,
+    weather: null,
+    weatherLoading: false,
+    weatherError: null,
+    weatherRequestId: null,
 };
 
 // Helper to transform API response rows into 96-block calendar format
@@ -193,6 +199,24 @@ export const fetchSeasons = createAsyncThunk<
     return json.seasons;
 });
 
+// 7. Weather for every location on one date
+export const fetchWeather = createAsyncThunk<
+    { date: string; locations: Record<string, WeatherBlocks> },
+    { date: string; client_id: string; location_id?: string }
+>("demand/fetchWeather", async ({ date, client_id, location_id }) => {
+    const query = new URLSearchParams({ date, client_id });
+    if (location_id) query.set("location_id", location_id);
+    const res = await fetch(`${BASE_URL}weather/multi?${query.toString()}`, {
+        headers: { accept: "*/*" },
+    });
+
+    if (!res.ok) throw new Error(`Failed to fetch weather: ${res.statusText}`);
+    const json: WeatherApiResponse = await res.json();
+    const locations: Record<string, WeatherBlocks> = {};
+    Object.entries(json.locations ?? {}).forEach(([id, l]) => { if (l?.current) locations[id] = l.current; });
+    return { date, locations };
+});
+
 export const demandSlice = createSlice({
     name: "demand",
     initialState,
@@ -291,6 +315,25 @@ export const demandSlice = createSlice({
             .addCase(fetchYearDayDemand.fulfilled, (state, action) => {
                 if (action.meta.requestId !== state.yearDayRequestId) return;
                 state.yearDay = action.payload;
+            });
+
+        // Weather Handlers (only the latest request may land)
+        builder
+            .addCase(fetchWeather.pending, (state, action) => {
+                state.weatherRequestId = action.meta.requestId;
+                state.weatherLoading = true;
+                state.weatherError = null;
+            })
+            .addCase(fetchWeather.fulfilled, (state, action) => {
+                if (action.meta.requestId !== state.weatherRequestId) return;
+                state.weatherLoading = false;
+                state.weather = action.payload;
+            })
+            .addCase(fetchWeather.rejected, (state, action) => {
+                if (action.meta.requestId !== state.weatherRequestId) return;
+                state.weatherLoading = false;
+                state.weather = null;
+                state.weatherError = action.error.message || "Failed to load weather";
             });
 
         // Season Handlers
