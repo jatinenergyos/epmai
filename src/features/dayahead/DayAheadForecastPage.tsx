@@ -1,12 +1,12 @@
 // Day-ahead · Demand "Forecast" page: KPI row, 96-block forecast chart, weather, error analysis
-// and period breakdown, filling the viewport. The System Forecast comes from the demand API;
-// the rest are placeholders (see data.ts, every hook-up point marked "TODO: connect API").
+// and period breakdown, filling the viewport. System Forecast, Actual, MAPE and Roastering come
+// from the day-ahead API and the weather from the weather API (see data.ts).
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, CalendarDays } from "lucide-react";
 import { NOW } from "@/data/engine";
 import { cn } from "@/lib/utils";
 import {
-  blockTime, errorBuckets, isoDate, kpisOf, mockActuals, periodsOf, todayIso, useDayForecast, useWeather,
+  blockTime, errorBuckets, isoDate, systemBucketsFromApi, kpisOf, buildActuals, periodsOf, todayIso, useDayForecast, useWeather,
 } from "./data";
 import { ErrorAnalysisTable } from "./ErrorAnalysisTable";
 import { ForecastChart } from "./ForecastChart";
@@ -44,8 +44,8 @@ export function DayAheadForecastPage() {
 function ForecastTab({ date, setDate, maxDate, location, setLocation }: {
   date: string; setDate: (d: string) => void; maxDate: string; location: string; setLocation: (l: string) => void;
 }) {
-  const { forecast, loading, error } = useDayForecast(date);
-  const actuals = useMemo(() => (forecast ? mockActuals(forecast, date) : null), [forecast, date]);
+  const { forecast, actual, mape, roastering, errorRanges, loading, error } = useDayForecast(date);
+  const actuals = useMemo(() => (forecast ? buildActuals(forecast, { actual, mape, roastering }) : null), [forecast, actual, mape, roastering]);
   const weather = useWeather(date);
   const wxDay = weather.days[location];
   const k = useMemo(() => (forecast ? kpisOf(forecast) : null), [forecast]);
@@ -77,7 +77,7 @@ function ForecastTab({ date, setDate, maxDate, location, setLocation }: {
         </div>
         <div className={cn(card, "flex flex-col gap-3 lg:col-span-4")}>
           <div className="min-h-0 flex-1">
-            <ErrorAnalysisTable system={actuals ? errorBuckets(actuals.mape, 1) : null} manual={actuals ? errorBuckets(actuals.manualMape, 0.5) : null} />
+            <ErrorAnalysisTable system={systemBucketsFromApi(errorRanges)} manual={actuals ? errorBuckets(actuals.manualMape, 0.5) : null} />
           </div>
           <div className="border-t" />
           <div className="min-h-0 flex-1"><PeriodBreakdown rows={periods} /></div>

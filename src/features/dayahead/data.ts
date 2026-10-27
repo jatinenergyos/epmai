@@ -1,10 +1,9 @@
-// Data for the Day-ahead Demand "Forecast" page. The System Forecast comes from the demand API
-// (Redux `fetchDayDemandForecast`, data_id 102110) and the weather from `weather/multi`
-// (`fetchWeather`); actuals are still a deterministic placeholder seeded by the date, marked
-// where a real API should plug in.
+// Data for the Day-ahead Demand "Forecast" page. System Forecast, Actual, MAPE and Roastering
+// come from the day-ahead API (Redux `fetchDayAhead`, GET /day_ahead) and the weather from
+// `weather/multi` (`fetchWeather`). Manual Forecast has no API yet (marked TODO).
 import { useEffect, useMemo } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { fetchDayDemandForecast, fetchWeather } from "@/store/slice/demandApiSlice";
+import { fetchDayAhead, fetchWeather } from "@/store/slice/demandApiSlice";
 import type { WeatherBlocks } from "@/store/features/demandTypes";
 import { NOW } from "@/data/engine";
 
@@ -18,43 +17,36 @@ export const isoDate = (d: Date) =>
   d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 export const todayIso = () => isoDate(NOW);
 
-/** Small seeded PRNG so placeholders stay stable for a given date/location. */
-function rng(seed: string) {
-  let h = 2166136261;
-  for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return () => {
-    h += 0x6d2b79f5;
-    let t = h;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 /* ---------- forecast (API) ---------- */
 
 export type DayForecast = {
   forecast: number[] | null;
+  /** Actual, per-block MAPE % and Roastering — only for today or earlier, null for a future date. */
+  actual: number[] | null;
+  mape: number[] | null;
+  roastering: number[] | null;
+  /** System Forecast error bands from the API, null when there are no actuals yet. */
+  errorRanges: { range: string; blocks: number; percent: number }[] | null;
   loading: boolean;
   error: string | null;
 };
 
-/** System Forecast for one date, from the demand API via Redux (from_date = to_date = date). */
+/** System Forecast and Actual for one date, from the day-ahead API via Redux. */
 export function useDayForecast(date: string): DayForecast {
   const dispatch = useAppDispatch();
   const { dayData, dayLoading, dayError } = useAppSelector((s) => s.demand);
   useEffect(() => {
-    dispatch(fetchDayDemandForecast({ date, location_id: 10030, forcasted_by: "System" }));
+    dispatch(fetchDayAhead({ date }));
   }, [dispatch, date]);
-  const blocks = dayData?.dem[0];
+  const day = dayData?.date === date ? dayData : null;
   return {
-    forecast: blocks && blocks.length === BLOCKS && dayData?.dates[0] === date ? blocks : null,
-    loading: dayLoading,
-    error: dayError,
+    forecast: day?.forecast ?? null, actual: day?.actual ?? null, mape: day?.mape ?? null, roastering: day?.roastering ?? null,
+    errorRanges: day?.errorRanges ?? null,
+    loading: dayLoading, error: dayError,
   };
 }
 
-/* ---------- actuals, roastering, MAPE (placeholders) ---------- */
+/* ---------- actuals, MAPE, roastering (API) ---------- */
 
 export type Actuals = {
   actual: number[];
@@ -64,18 +56,16 @@ export type Actuals = {
   manualMape: number[] | null;
 };
 
-/** Actual, Roastering and System MAPE exist only for today or earlier; null for a future date.
- *  Manual Forecast isn't available yet, so it stays null and its series are hidden. */
-export function mockActuals(forecast: number[], date: string): Actuals | null {
-  if (date > todayIso()) return null;
-  // TODO: connect API — actual (SCADA) demand for this date
-  // TODO: connect API — roastering
+/** Actual, MAPE and Roastering all come from the API, only for today or earlier — null
+ *  otherwise, which hides those series. If the API leaves out MAPE it's worked out as
+ *  |actual − forecast| / actual, and a missing Roastering draws as zero. Manual Forecast
+ *  isn't available yet, so it stays null and its series are hidden. */
+export function buildActuals(forecast: number[], d: Pick<DayForecast, "actual" | "mape" | "roastering">): Actuals | null {
+  if (!d.actual) return null;
   // TODO: connect API — manual forecast (and its MAPE)
-  const r = rng("act" + date);
-  const actual = forecast.map((f, b) => Math.round(f * (1 + 0.035 * Math.sin(b / 7 + r() * 0.4) + (r() - 0.5) * 0.02)));
-  const roastering = forecast.map(() => Math.round(90 + r() * 170));
-  const mape = actual.map((a, b) => +(Math.abs(a - forecast[b]) / (a || 1) * 100).toFixed(2));
-  return { actual, roastering, mape, manual: null, manualMape: null };
+  const actual = d.actual;
+  const mape = d.mape ?? actual.map((a, b) => +(Math.abs(a - forecast[b]) / (a || 1) * 100).toFixed(2));
+  return { actual, roastering: d.roastering ?? actual.map(() => 0), mape, manual: null, manualMape: null };
 }
 
 /* ---------- weather (API: weather/multi) ---------- */
@@ -183,6 +173,13 @@ export const SYSTEM_RANGES = ["0–1%", "1–2%", "2–3%", "3–4%", "4–5%", 
 export const MANUAL_RANGES = ["0–0.5%", "0.5–1%", "1–1.5%", "1.5–2%", "2–2.5%", "2.5–3%", ">3%"];
 
 /** Share of blocks (%) whose MAPE falls in each band of width `step`, last band open-ended. */
+/** API error bands → percents in SYSTEM_RANGES order (matched by label, else by position). */
+export function systemBucketsFromApi(ranges: { range: string; percent: number }[] | null): number[] | null {
+  if (!ranges?.length) return null;
+  const norm = (s: string) => s.replace(/\s|-/g, "–").replace(/–+/g, "–");
+  return SYSTEM_RANGES.map((lbl, k) => (ranges.find((r) => norm(r.range) === norm(lbl)) ?? ranges[k])?.percent ?? 0);
+}
+
 export function errorBuckets(mape: number[] | null, step: number): number[] {
   const out = new Array(7).fill(0);
   if (!mape?.length) return out;

@@ -72,6 +72,36 @@ export interface WeatherApiResponse {
     locations: Record<string, { current: WeatherBlocks; reference: unknown }>;
 }
 
+/** GET /day_ahead?date= — the day's System Forecast plus, for today or earlier, the actuals. */
+export interface DayAheadApiResponse {
+    date: string;
+    today: string;
+    show_accuracy: boolean;
+    count: number;
+    forecasts: {
+        data_id: number;
+        forecasted_by: string;
+        blocks: Record<string, number>;
+        actual_blocks?: Record<string, number>;
+        mape_blocks?: Record<string, number>;
+        roastering_blocks?: Record<string, number>;
+        mape_error_ranges?: { error_range: string; blocks: number; percent: number }[];
+        day_mape?: number;
+    }[];
+}
+
+/** One day from the day-ahead API, as 96-block arrays; `forecast` null when none is saved. */
+export interface DayAheadData {
+    date: string;
+    forecast: number[] | null;
+    actual: number[] | null;
+    mape: number[] | null;
+    roastering: number[] | null;
+    /** System Forecast error bands (share of blocks per MAPE range), as the API computes them. */
+    errorRanges: { range: string; blocks: number; percent: number }[] | null;
+    dayMape: number | null;
+}
+
 export interface DemandState {
     data: DemandCalendarData | null;
     loading: boolean;
@@ -79,7 +109,7 @@ export interface DemandState {
     weekData: DemandCalendarData | null;
     weekLoading: boolean;
     weekError: string | null;
-    dayData: DemandCalendarData | null;
+    dayData: DayAheadData | null;
     dayLoading: boolean;
     dayError: string | null;
     dayRequestId: string | null;

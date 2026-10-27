@@ -21,7 +21,7 @@ export function ErrorAnalysisTable({ system, manual }: { system: number[] | null
           {SYSTEM_RANGES.map((r, k) => (
             <div key={r} className={"grid flex-1 grid-cols-4 items-center text-center " + (k % 2 ? "bg-muted/40" : "bg-card")}>
               <div>{r}</div>
-              <div className="num h-full content-center border-r">{system[k]}%</div>
+              <div className="num h-full content-center border-r">{+system[k].toFixed(2)}%</div>
               <div className="text-sky-500">{MANUAL_RANGES[k]}</div>
               <div className="num">{manual ? manual[k] : 0}%</div>
             </div>
