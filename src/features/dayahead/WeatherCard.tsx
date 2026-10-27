@@ -34,7 +34,7 @@ function WeatherTip({ active, payload, hidden }: { active?: boolean; payload?: {
       {TIP_ROWS.filter((r) => !hidden.has(r.legend)).map((r) => (
         <div key={r.key} className="flex items-center justify-between gap-4 py-0.5">
           <span className="flex items-center gap-1.5 text-muted-foreground"><i className="inline-block h-2 w-2 rounded-full" style={{ background: r.color }} />{r.label}:</span>
-          <span className="num font-semibold">{+Number(h[r.key]).toFixed(2)}</span>
+          <span className="num font-semibold">{Number(h[r.key]).toFixed(2)}</span>
         </div>
       ))}
     </div>

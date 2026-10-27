@@ -4,6 +4,8 @@ import type {
     DemandCalendarData,
     DemandQueryParams,
     DemandState,
+    DayAheadApiResponse,
+    DayAheadData,
     Season,
     SeasonApiResponse,
     WeatherApiResponse,
@@ -115,27 +117,37 @@ export const fetchWeekDemandForecast = createAsyncThunk<
     return transformDemandRows(json.rows);
 });
 
-// 3. Day-ahead Thunk (data_id=102110) — one day, so from_date = to_date
-export const fetchDayDemandForecast = createAsyncThunk<
-    DemandCalendarData,
-    DemandQueryParams & { date: string }
->("demand/fetchDayDemandForecast", async (params) => {
-    const query = new URLSearchParams({
-        data_id: String(params.data_id ?? 102110),
-        from_date: params.date,
-        to_date: params.date,
-        location_id: String(params.location_id ?? 10030),
-        forcasted_by: params.forcasted_by ?? "System",
-    });
+// 3. Day-ahead Thunk — System Forecast and (today or earlier) Actual for one date
+export const fetchDayAhead = createAsyncThunk<DayAheadData, { date: string }>(
+    "demand/fetchDayAhead",
+    async ({ date }) => {
+        const res = await fetch(`${BASE_URL}day_ahead?${new URLSearchParams({ date }).toString()}`, {
+            headers: { accept: "*/*" },
+        });
 
-    const res = await fetch(`${BASE_URL}demand-forcast/?${query.toString()}`, {
-        headers: { accept: "*/*" },
-    });
-
-    if (!res.ok) throw new Error(`Failed to fetch day forecast: ${res.statusText}`);
-    const json: DemandApiResponse = await res.json();
-    return transformDemandRows(json.rows);
-});
+        // 404 = no forecast saved for that date: an empty day, not a failure.
+        if (res.status === 404) return { date, forecast: null, actual: null, mape: null, roastering: null, errorRanges: null, dayMape: null };
+        if (!res.ok) throw new Error(`Failed to fetch day-ahead forecast: ${res.statusText}`);
+        const json: DayAheadApiResponse = await res.json();
+        const f = json.forecasts?.find((x) => x.forecasted_by === "System") ?? json.forecasts?.[0];
+        const toArr = (o?: Record<string, number>) => {
+            if (!o) return null;
+            const a = Array.from({ length: 96 }, (_, b) => Number(o[String(b + 1)]));
+            return a.some((v) => Number.isNaN(v)) ? null : a;
+        };
+        return {
+            date,
+            forecast: toArr(f?.blocks),
+            actual: json.show_accuracy ? toArr(f?.actual_blocks) : null,
+            mape: json.show_accuracy ? toArr(f?.mape_blocks) : null,
+            roastering: json.show_accuracy ? toArr(f?.roastering_blocks) : null,
+            errorRanges: json.show_accuracy && f?.mape_error_ranges?.length
+                ? f.mape_error_ranges.map((r) => ({ range: r.error_range, blocks: r.blocks, percent: r.percent }))
+                : null,
+            dayMape: f?.day_mape ?? null,
+        };
+    },
+);
 
 // 4. Year-ahead Thunk (data_id=102140)
 export const fetchYearDemandForecast = createAsyncThunk<
@@ -272,17 +284,17 @@ export const demandSlice = createSlice({
         // Day Ahead Handlers
         builder
             // Only the latest request may land — paging quickly fires several.
-            .addCase(fetchDayDemandForecast.pending, (state, action) => {
+            .addCase(fetchDayAhead.pending, (state, action) => {
                 state.dayRequestId = action.meta.requestId;
                 state.dayLoading = true;
                 state.dayError = null;
             })
-            .addCase(fetchDayDemandForecast.fulfilled, (state, action) => {
+            .addCase(fetchDayAhead.fulfilled, (state, action) => {
                 if (action.meta.requestId !== state.dayRequestId) return;
                 state.dayLoading = false;
                 state.dayData = action.payload;
             })
-            .addCase(fetchDayDemandForecast.rejected, (state, action) => {
+            .addCase(fetchDayAhead.rejected, (state, action) => {
                 if (action.meta.requestId !== state.dayRequestId) return;
                 state.dayLoading = false;
                 state.dayData = null;
