@@ -27,6 +27,8 @@ export type YearApi = {
   /** Step the window a year back (-1) or forward (+1); `canNext` is false at the latest window. */
   shift: (dir: -1 | 1) => void;
   canNext: boolean;
+  /** Extra controls after the range picker (e.g. Sync DB). */
+  extra?: ReactNode;
 };
 
 /* ---------- data shapes ---------- */
@@ -383,11 +385,8 @@ function Calendar({ D, PI, modes, defaultMode, initialMonthKey, monthBarPortalRe
       ) : (
         <section className="dc-card">
           {compactMonth ? (
-            <div className="flex items-start justify-between gap-3">
-              <Legend
-                mode={mode} isSingle={isSingle} isSur={isSur} names={names} off={off}
-                toggleOff={toggleOff} demOn={demOn} setDemOn={setDemOn} srcInfo={srcInfo}
-              />
+            // Demand month: just the month picker, top right (no "Demand met, MW" legend).
+            <div className="flex items-start justify-end gap-3">
               <MonthBar months={months} m={m} setM={setM} />
             </div>
           ) : graphGroups ? (
@@ -1300,6 +1299,7 @@ function YearView({ D, PI, modes, defaultMode, supplyFocus = false, hideKpis = f
               <button aria-label="Next year" disabled={!yearApi.canNext} onClick={() => yearApi.shift(1)}>▶</button>
             </div>
           )}
+          {yearApi?.extra && <div style={{ marginLeft: 8 }}>{yearApi.extra}</div>}
         </div>
         <div className="dc-cal-scroll">
           <YearGrid

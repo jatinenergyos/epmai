@@ -16,8 +16,8 @@ import { mean, median, stdevP, sum } from "./stats"
 
 const base = import.meta.env.BASE_URL || "/"
 
-/** The subset of public/dc/data.json this grid needs. */
-interface DcData {
+/** The subset of public/dc/data.json this grid needs (an API forecast can stand in for it). */
+export interface DcData {
   dates: string[] // "YYYY-MM-DD"
   dem: number[][] // [day][96] demand met (MW)
   av: number[][] // [day][96] declared-capacity supply (MW)
@@ -31,7 +31,7 @@ export const LG_SETS: Record<string, { series: Series; label: string; sub: strin
   supply: { series: "av", label: "Declared capacity", sub: "available DC supply per block, MW" },
   opt: { series: "sur", label: "Surplus / deficit", sub: "supply − demand per block, MW" },
   // Market Intelligence reuses Supply's declared-capacity (Total supply DC) series —
-  // same grid, same data; the Market/Exchange picker is a placeholder (see Horizon.tsx).
+  // same grid, same data; the Market/Exchange picker is a placeholder (see pages/AllModules/MarketIntelligence/).
   mi: { series: "av", label: "Declared capacity", sub: "available DC supply per block, MW" },
 }
 

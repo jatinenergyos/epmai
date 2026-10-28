@@ -52,6 +52,21 @@ export interface Season {
     days_in_range: number;
 }
 
+/** One season of a calendar year (period/seasons?year=). */
+export interface LongTermSeason {
+    cal_year: number;
+    period_code: string;
+    period_name: string;
+    from_date: string;
+    to_date: string;
+}
+
+export interface LongTermSeasonApiResponse {
+    year: number;
+    count: number;
+    seasons: LongTermSeason[];
+}
+
 export interface SeasonApiResponse {
     start_date: string;
     end_date: string;
@@ -126,4 +141,10 @@ export interface DemandState {
     weatherLoading: boolean;
     weatherError: string | null;
     weatherRequestId: string | null;
+    // Long term (data_id=102150): daily 96-block forecast + the seasons of each year it spans.
+    longTermData: DemandCalendarData | null;
+    longTermLoading: boolean;
+    longTermError: string | null;
+    longTermRequestId: string | null;
+    longTermSeasons: LongTermSeason[] | null;
 }

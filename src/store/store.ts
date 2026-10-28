@@ -1,9 +1,11 @@
 import { configureStore } from "@reduxjs/toolkit";
 import demandReducer from "./slice/demandApiSlice";
+import supplyReducer from "./slice/supplyApiSlice";
 
 export const store = configureStore({
     reducer: {
         demand: demandReducer,
+        supply: supplyReducer,
     },
 });
 
