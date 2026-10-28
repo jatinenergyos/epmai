@@ -11,7 +11,7 @@ import { MONTHS, monthName } from "./constants"
 import { fullGroupedBoxOptions, fullGroupedLineOptions, fullMonthOptions, miniGroupedBoxOptions, miniGroupedLineOptions, miniMonthOptions, type Kind } from "./monthCharts"
 import { useChartTheme } from "./theme"
 import type { DayRow } from "./types"
-import { buildDataset, LG_SETS, SEASONS, useDcData, type GridDataset } from "./data"
+import { buildDataset, LG_SETS, SEASONS, useDcData, type DcData, type GridDataset } from "./data"
 import { groupsFor, splitByGroup, type GroupBy } from "./breakdown"
 import {
   ChartCard, CompareProvider, CompareTray, ChartViewer, LazyChart, Segmented,
@@ -21,6 +21,53 @@ import "./LoadGrid.css"
 
 type Size = "S" | "M" | "L"
 type Period = "month" | "season"
+
+/** A season as dated by the API (period/seasons?year=): one row per season per calendar year. */
+export interface SeasonRange {
+  cal_year: number
+  period_code: string
+  period_name: string
+  from_date: string // "YYYY-MM-DD"
+  to_date: string
+}
+
+/** One season column of the grid: its label, its month span and which days fall in it. */
+interface SeasonCol {
+  key: number
+  name: string
+  range: string
+  has: (d: DayRow) => boolean
+}
+
+/** "Jan – Feb" (or "Mar" for a single month) from two ISO dates. */
+const monthSpan = (from: string, to: string) => {
+  const a = MONTHS[Number(from.slice(5, 7)) - 1], b = MONTHS[Number(to.slice(5, 7)) - 1]
+  return a === b ? a : `${a} – ${b}`
+}
+
+/** Season columns from the API's dated seasons (ordered by period code), or the built-in
+ *  month-based seasons when none are given. A year the API has no seasons for falls back to
+ *  the built-in months of the same season. */
+function seasonCols(ranges: SeasonRange[] | null | undefined): SeasonCol[] {
+  if (!ranges?.length) {
+    return SEASONS.map((s) => ({ key: s.id, name: s.name, range: s.range, has: (d) => s.months.includes(d.month) }))
+  }
+  const codes = [...new Set(ranges.map((r) => r.period_code))]
+    .sort((a, b) => (parseInt(a.replace(/\D/g, ""), 10) || 0) - (parseInt(b.replace(/\D/g, ""), 10) || 0))
+  const datedYears = new Set(ranges.map((r) => r.cal_year))
+  return codes.map((code, k) => {
+    const rows = ranges.filter((r) => r.period_code === code)
+    const fallback = SEASONS.find((s) => s.name === rows[0].period_name) ?? SEASONS[k]
+    return {
+      key: k + 1,
+      name: rows[0].period_name,
+      range: monthSpan(rows[0].from_date, rows[0].to_date),
+      has: (d) => datedYears.has(d.year)
+        ? rows.some((r) => r.cal_year === d.year && d.date >= r.from_date && d.date <= r.to_date)
+        : !!fallback?.months.includes(d.month),
+    }
+  })
+}
 
 const SIZES: Record<Size, { w: number; h: number }> = {
   S: { w: 240, h: 185 },
@@ -56,21 +103,33 @@ export function hasLoadGrid(mod: string): boolean {
   return mod in LG_SETS
 }
 
-export default function LoadGrid({ kind, mod, groupBy = null, leftControls }: { kind: Kind; mod: string; groupBy?: GroupBy | null; leftControls?: ReactNode }) {
-  const { D, err } = useDcData()
+/** `externalData` (with `loading` / `error`) replaces the local DC dataset with an API forecast;
+ *  `seasons` replaces the built-in month-based seasons with the API's dated ones; `rightControls`
+ *  sit after "Compare first 12". */
+export default function LoadGrid({ kind, mod, groupBy = null, leftControls, rightControls, externalData, loading = false, error = null, seasons }: {
+  kind: Kind; mod: string; groupBy?: GroupBy | null; leftControls?: ReactNode; rightControls?: ReactNode
+  externalData?: DcData | null; loading?: boolean; error?: string | null; seasons?: SeasonRange[] | null
+}) {
+  const local = useDcData()
+  const useApi = externalData !== undefined
+  const D = useApi ? externalData : local.D
+  const err = useApi ? !!error : local.err
   const cfg = setFor(mod)
   const ds = useMemo<GridDataset | null>(() => (D ? buildDataset(D, cfg.series) : null), [D, cfg.series])
+  const cols = useMemo(() => seasonCols(seasons), [seasons])
   // "Graph Type" grouping (Category / Technology / Variable cost / Plants) only applies
   // to the Supply declared-capacity box plot — every other module/kind is untouched.
   const groups = useMemo(() => (groupBy && cfg.series === "av" ? groupsFor(groupBy) : null), [groupBy, cfg.series])
 
-  if (err) return <p className="lg-note">Could not load the load-profile data. Reload the page to try again.</p>
+  if (err) return <p className="lg-note">{useApi && error ? error : "Could not load the load-profile data. Reload the page to try again."}</p>
+  if (useApi && loading) return <p className="lg-note">Loading load profiles…</p>
+  if (useApi && !ds?.days.length) return <p className="lg-note">No forecast data for this period.</p>
   if (!ds) return <p className="lg-note">Loading load profiles…</p>
 
   return (
     <CompareProvider>
       <div className="lg-root">
-        <Grid ds={ds} kind={kind} cfg={cfg} groups={groups} leftControls={leftControls} />
+        <Grid ds={ds} kind={kind} cfg={cfg} groups={groups} seasons={cols} leftControls={leftControls} rightControls={rightControls} />
         <CompareTray />
         <ChartViewer />
       </div>
@@ -78,7 +137,7 @@ export default function LoadGrid({ kind, mod, groupBy = null, leftControls }: { 
   )
 }
 
-function Grid({ ds, kind, cfg, groups, leftControls }: { ds: GridDataset; kind: Kind; cfg: ReturnType<typeof setFor>; groups: ReturnType<typeof groupsFor> | null; leftControls?: ReactNode }) {
+function Grid({ ds, kind, cfg, groups, seasons, leftControls, rightControls }: { ds: GridDataset; kind: Kind; cfg: ReturnType<typeof setFor>; groups: ReturnType<typeof groupsFor> | null; seasons: SeasonCol[]; leftControls?: ReactNode; rightControls?: ReactNode }) {
   const { openCompare } = useCompare()
   const t = useChartTheme()
   const [size, setSize] = useState<Size>("M")
@@ -109,14 +168,14 @@ function Grid({ ds, kind, cfg, groups, leftControls }: { ds: GridDataset; kind: 
       }
       for (let m = 1; m <= 12; m++) titleOf.set(m, (y) => `${monthName(m)} ${y}`)
     } else {
-      for (const s of SEASONS) {
-        columns.push({ key: s.id, label: s.name, title: `${s.name} · ${s.range}` })
-        titleOf.set(s.id, (y) => `${s.name} ${y}`)
+      for (const s of seasons) {
+        columns.push({ key: s.key, label: s.name, title: `${s.name} · ${s.range}` })
+        titleOf.set(s.key, (y) => `${s.name} ${y}`)
       }
       for (const y of ds.years) {
-        for (const s of SEASONS) {
-          const days = ds.days.filter((d) => d.year === y && s.months.includes(d.month))
-          if (days.length) dayMap.set(`${y}:${s.id}`, days)
+        for (const s of seasons) {
+          const days = ds.days.filter((d) => d.year === y && s.has(d))
+          if (days.length) dayMap.set(`${y}:${s.key}`, days)
         }
       }
     }
@@ -142,7 +201,7 @@ function Grid({ ds, kind, cfg, groups, leftControls }: { ds: GridDataset; kind: 
     }
     return { columns, dayMap, specs }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ds, kind, period, cfg.series, cfg.label, t, grouped])
+  }, [ds, kind, period, cfg.series, cfg.label, t, grouped, seasons])
 
   const pool = useMemo(() => [...model.specs.values()], [model])
   const unit = period === "month" ? "month" : "season"
@@ -192,13 +251,14 @@ function Grid({ ds, kind, cfg, groups, leftControls }: { ds: GridDataset; kind: 
           >
             Compare first 12 ▦
           </button>
+          {rightControls}
         </div>
       </div>
 
       {period === "season" && (
         <div className="lg-season-key" aria-label="Season definitions">
-          {SEASONS.map((s) => (
-            <span className="lg-season-chip" key={s.id}>
+          {seasons.map((s) => (
+            <span className="lg-season-chip" key={s.key}>
               <b>{s.name}</b> <span>{s.range}</span>
             </span>
           ))}

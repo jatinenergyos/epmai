@@ -6,12 +6,15 @@ import type {
     DemandState,
     DayAheadApiResponse,
     DayAheadData,
+    LongTermSeason,
+    LongTermSeasonApiResponse,
     Season,
     SeasonApiResponse,
     WeatherApiResponse,
     WeatherBlocks,
 } from "../features/demandTypes";
 import BASE_URL from '../../../BASE_URL'
+import { cachedJson } from "@/lib/idbCache";
 
 const initialState: DemandState = {
     data: null,
@@ -35,6 +38,11 @@ const initialState: DemandState = {
     weatherLoading: false,
     weatherError: null,
     weatherRequestId: null,
+    longTermData: null,
+    longTermLoading: false,
+    longTermError: null,
+    longTermRequestId: null,
+    longTermSeasons: null,
 };
 
 // Helper to transform API response rows into 96-block calendar format
@@ -149,10 +157,11 @@ export const fetchDayAhead = createAsyncThunk<DayAheadData, { date: string }>(
     },
 );
 
-// 4. Year-ahead Thunk (data_id=102140)
+// 4. Year-ahead Thunk (data_id=102140). Cache-first: the saved IndexedDB copy is used when there
+// is one; `sync: true` calls the API and saves the response if it differs (see lib/idbCache.ts).
 export const fetchYearDemandForecast = createAsyncThunk<
-    DemandCalendarData,
-    DemandQueryParams | undefined
+    { data: DemandCalendarData; changed: boolean },
+    (DemandQueryParams & { sync?: boolean }) | undefined
 >("demand/fetchYearDemandForecast", async (params) => {
     const query = new URLSearchParams({
         data_id: String(params?.data_id ?? 102140),
@@ -163,16 +172,19 @@ export const fetchYearDemandForecast = createAsyncThunk<
         table: params?.table ?? "daily",
     });
 
-    const res = await fetch(`${BASE_URL}demand-forcast/?${query.toString()}`, {
-        headers: { accept: "*/*" },
-    });
-
-    if (!res.ok) throw new Error(`Failed to fetch year forecast: ${res.statusText}`);
-    const json: DemandApiResponse = await res.json();
-    return transformDemandRows(json.rows);
+    const { value: rows, changed } = await cachedJson(`year:${query.toString()}`, async () => {
+        const res = await fetch(`${BASE_URL}demand-forcast/?${query.toString()}`, {
+            headers: { accept: "*/*" },
+        });
+        if (!res.ok) throw new Error(`Failed to fetch year forecast: ${res.statusText}`);
+        const json: DemandApiResponse = await res.json();
+        return json.rows;
+    }, params?.sync);
+    return { data: transformDemandRows(rows), changed };
 });
 
-// 5. Year-ahead single day (data_id=102140, from_date = to_date) — opened from the year grid
+// 5. Year-ahead single day (data_id=102140, from_date = to_date) — opened from the year grid.
+// Cached under "year-day:"; a year-ahead Sync DB clears these so days re-load fresh.
 export const fetchYearDayDemand = createAsyncThunk<
     { date: string; dem: number[] },
     DemandQueryParams & { date: string }
@@ -186,29 +198,33 @@ export const fetchYearDayDemand = createAsyncThunk<
         table: params.table ?? "daily",
     });
 
-    const res = await fetch(`${BASE_URL}demand-forcast/?${query.toString()}`, {
-        headers: { accept: "*/*" },
+    const { value: rows } = await cachedJson(`year-day:${query.toString()}`, async () => {
+        const res = await fetch(`${BASE_URL}demand-forcast/?${query.toString()}`, {
+            headers: { accept: "*/*" },
+        });
+        if (!res.ok) throw new Error(`Failed to fetch day forecast: ${res.statusText}`);
+        const json: DemandApiResponse = await res.json();
+        return json.rows;
     });
-
-    if (!res.ok) throw new Error(`Failed to fetch day forecast: ${res.statusText}`);
-    const json: DemandApiResponse = await res.json();
-    const data = transformDemandRows(json.rows);
+    const data = transformDemandRows(rows);
     return { date: params.date, dem: data.dem[0] ?? [] };
 });
 
-// 6. Seasons covering a date range
+// 6. Seasons covering a date range (cache-first, like the year-ahead forecast)
 export const fetchSeasons = createAsyncThunk<
-    Season[],
-    { start_date: string; end_date: string }
->("demand/fetchSeasons", async ({ start_date, end_date }) => {
+    { seasons: Season[]; changed: boolean },
+    { start_date: string; end_date: string; sync?: boolean }
+>("demand/fetchSeasons", async ({ start_date, end_date, sync }) => {
     const query = new URLSearchParams({ start_date, end_date });
-    const res = await fetch(`${BASE_URL}period/season-by-date?${query.toString()}`, {
-        headers: { accept: "*/*" },
-    });
-
-    if (!res.ok) throw new Error(`Failed to fetch seasons: ${res.statusText}`);
-    const json: SeasonApiResponse = await res.json();
-    return json.seasons;
+    const { value: seasons, changed } = await cachedJson(`season-by-date:${query.toString()}`, async () => {
+        const res = await fetch(`${BASE_URL}period/season-by-date?${query.toString()}`, {
+            headers: { accept: "*/*" },
+        });
+        if (!res.ok) throw new Error(`Failed to fetch seasons: ${res.statusText}`);
+        const json: SeasonApiResponse = await res.json();
+        return json.seasons;
+    }, sync);
+    return { seasons, changed };
 });
 
 // 7. Weather for every location on one date
@@ -228,6 +244,66 @@ export const fetchWeather = createAsyncThunk<
     Object.entries(json.locations ?? {}).forEach(([id, l]) => { if (l?.current) locations[id] = l.current; });
     return { date, locations };
 });
+
+// 8. Long-term Thunk (data_id=102150). The API caps a request at 1830 days, so the range is
+// fetched one calendar year at a time and merged in date order. Cache-first like the year ahead.
+export const fetchLongTermDemandForecast = createAsyncThunk<
+    { data: DemandCalendarData; changed: boolean },
+    (DemandQueryParams & { sync?: boolean }) | undefined
+>("demand/fetchLongTermDemandForecast", async (params) => {
+    const from = params?.from_date ?? "2026-11-01";
+    const to = params?.to_date ?? "2031-12-31";
+    const base = {
+        data_id: String(params?.data_id ?? 102150),
+        location_id: String(params?.location_id ?? 10030),
+        forcasted_by: params?.forcasted_by ?? "System",
+        table: params?.table ?? "daily",
+    };
+    const chunks: { from_date: string; to_date: string }[] = [];
+    for (let y = Number(from.slice(0, 4)); y <= Number(to.slice(0, 4)); y++) {
+        chunks.push({
+            from_date: y === Number(from.slice(0, 4)) ? from : `${y}-01-01`,
+            to_date: y === Number(to.slice(0, 4)) ? to : `${y}-12-31`,
+        });
+    }
+
+    const key = `longterm:${new URLSearchParams({ ...base, from_date: from, to_date: to }).toString()}`;
+    const { value: rows, changed } = await cachedJson(key, async () => {
+        const parts = await Promise.all(chunks.map(async ({ from_date, to_date }) => {
+            const query = new URLSearchParams({ ...base, from_date, to_date });
+            const res = await fetch(`${BASE_URL}demand-forcast/?${query.toString()}`, {
+                headers: { accept: "*/*" },
+            });
+            if (!res.ok) throw new Error(`Failed to fetch long-term forecast: ${res.statusText}`);
+            const json: DemandApiResponse = await res.json();
+            return json.rows ?? [];
+        }));
+        return parts.flat().sort((a, b) => a.ts_date.localeCompare(b.ts_date));
+    }, params?.sync);
+    return { data: transformDemandRows(rows), changed };
+});
+
+// 9. Seasons of each calendar year (period/seasons?year=), merged. Cache-first.
+export const fetchLongTermSeasons = createAsyncThunk<
+    { seasons: LongTermSeason[]; changed: boolean },
+    { years: number[]; sync?: boolean }
+>(
+    "demand/fetchLongTermSeasons",
+    async ({ years, sync }) => {
+        const { value: seasons, changed } = await cachedJson(`longterm-seasons:${years.join(",")}`, async () => {
+            const all = await Promise.all(years.map(async (year) => {
+                const res = await fetch(`${BASE_URL}period/seasons?${new URLSearchParams({ year: String(year) }).toString()}`, {
+                    headers: { accept: "*/*" },
+                });
+                if (!res.ok) throw new Error(`Failed to fetch seasons for ${year}: ${res.statusText}`);
+                const json: LongTermSeasonApiResponse = await res.json();
+                return json.seasons ?? [];
+            }));
+            return all.flat();
+        }, sync);
+        return { seasons, changed };
+    }
+);
 
 export const demandSlice = createSlice({
     name: "demand",
@@ -305,13 +381,14 @@ export const demandSlice = createSlice({
         builder
             .addCase(fetchYearDemandForecast.pending, (state, action) => {
                 state.yearRequestId = action.meta.requestId;
-                state.yearLoading = true;
+                // A Sync DB keeps the current calendar on screen while it checks the API.
+                if (!action.meta.arg?.sync) state.yearLoading = true;
                 state.yearError = null;
             })
             .addCase(fetchYearDemandForecast.fulfilled, (state, action) => {
                 if (action.meta.requestId !== state.yearRequestId) return;
                 state.yearLoading = false;
-                state.yearData = action.payload;
+                state.yearData = action.payload.data;
             })
             .addCase(fetchYearDemandForecast.rejected, (state, action) => {
                 if (action.meta.requestId !== state.yearRequestId) return;
@@ -348,13 +425,34 @@ export const demandSlice = createSlice({
                 state.weatherError = action.error.message || "Failed to load weather";
             });
 
+        // Long-term Handlers
+        builder
+            .addCase(fetchLongTermDemandForecast.pending, (state, action) => {
+                state.longTermRequestId = action.meta.requestId;
+                if (!action.meta.arg?.sync) state.longTermLoading = true;
+                state.longTermError = null;
+            })
+            .addCase(fetchLongTermDemandForecast.fulfilled, (state, action) => {
+                if (action.meta.requestId !== state.longTermRequestId) return;
+                state.longTermLoading = false;
+                state.longTermData = action.payload.data;
+            })
+            .addCase(fetchLongTermDemandForecast.rejected, (state, action) => {
+                if (action.meta.requestId !== state.longTermRequestId) return;
+                state.longTermLoading = false;
+                state.longTermError = action.error.message || "Failed to load long-term forecast";
+            })
+            .addCase(fetchLongTermSeasons.fulfilled, (state, action) => {
+                state.longTermSeasons = action.payload.seasons;
+            });
+
         // Season Handlers
         builder
-            .addCase(fetchSeasons.pending, (state) => {
-                state.seasons = null;
+            .addCase(fetchSeasons.pending, (state, action) => {
+                if (!action.meta.arg.sync) state.seasons = null;
             })
             .addCase(fetchSeasons.fulfilled, (state, action) => {
-                state.seasons = action.payload;
+                state.seasons = action.payload.seasons;
             });
     },
 });

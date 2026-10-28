@@ -2,7 +2,7 @@
 // an external reference screenshot exactly (see the ported prompt in chat history).
 // Everything here — the 96-block series and every form field — is dummy/placeholder
 // data for a visual mockup; none of it reads from or writes to the app's real data
-// model. Shown only on Demand · Real-time's "Demand Tune up" page (see Cell.tsx), so
+// model. Shown only on Demand · Real-time's "Demand Tune up" page (see pages/CommandCentre/CellPage.tsx), so
 // it doesn't affect any other module/horizon/sub-metric.
 import { useMemo, useState, type ReactNode } from "react";
 import { Download, Info, RotateCcw, RotateCw, Menu } from "lucide-react";

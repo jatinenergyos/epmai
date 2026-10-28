@@ -2,7 +2,7 @@
 // external reference screenshot exactly (see the ported prompt in chat history).
 // Everything here — KPI numbers, the 96-block series, the error-bucket tables — is
 // dummy/placeholder data for a visual mockup; none of it reads from the app's real
-// data model. Shown only on Demand's "Demand Forecast" page (see Cell.tsx), so it
+// data model. Shown only on Demand's "Demand Forecast" page (see pages/CommandCentre/CellPage.tsx), so it
 // doesn't affect any other module/horizon/sub-metric.
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";

@@ -11,7 +11,9 @@
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
-  html { scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 140px); height: 100%; }
+  /* scrollbar-gutter: keep the scrollbar's space reserved, so a scrollbar briefly appearing (e.g. a
+     chart tooltip poking past the window edge) can't narrow the page and make every chart re-size. */
+  html { scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 140px); height: 100%; scrollbar-gutter: stable; }
   * { @apply border-border; }
   body {
     @apply bg-background text-foreground antialiased;
