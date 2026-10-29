@@ -40,7 +40,17 @@ export function dayChartOptions({ day, type, hidden, isToday, isPast, currentBlo
     startOnTick: false, endOnTick: false, minPadding: 0, maxPadding: 0,
   });
   const common: ChartOptions = {
-    chart: { animation: false, height, spacing: compact ? [2, 0, 0, 0] : [8, 6, 6, 4], backgroundColor: "transparent", style: { fontFamily: "inherit" } },
+    chart: {
+      animation: false, height, spacing: compact ? [2, 0, 0, 0] : [8, 6, 6, 4], backgroundColor: "transparent", style: { fontFamily: "inherit" },
+      // The tooltip is drawn outside the chart, so leaving the chart doesn't always hide it — and
+      // moving across the grid left one stuck open per card. Hide it as soon as the mouse leaves.
+      events: {
+        load(this: any) {
+          const c = this;
+          c.container.addEventListener("mouseleave", () => { c.pointer?.reset(false, 0); c.tooltip?.hide(0); });
+        },
+      },
+    },
     title: { text: undefined },
     credits: { enabled: false },
     legend: { enabled: false },
@@ -49,7 +59,7 @@ export function dayChartOptions({ day, type, hidden, isToday, isPast, currentBlo
       ? { title: { text: undefined }, labels: { enabled: false }, gridLineWidth: 0 }
       : { title: { text: "MW", style: AXIS }, labels: { style: AXIS }, gridLineDashStyle: "Dash", gridLineColor: "#e2e8f0" },
     tooltip: {
-      shared: true, useHTML: true, outside: true,
+      shared: true, useHTML: true, outside: true, hideDelay: 0,
       // No sliding between blocks — it made the tooltip (and the page) look jittery.
       animation: false,
       backgroundColor: "#ffffff", borderColor: "#e2e8f0", borderRadius: 6, padding: 8,

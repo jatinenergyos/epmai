@@ -30,7 +30,9 @@ function WeatherTip({ active, payload, hidden }: { active?: boolean; payload?: {
   const h = payload[0].payload;
   return (
     <div className="min-w-[200px] rounded-lg border bg-popover px-3 py-2 text-[12px] text-popover-foreground shadow-lg">
-      <div className="mb-1 font-semibold">{h.t}</div>
+      <div className="mb-1 font-semibold">
+        {(() => { const [a, b] = hourBlocks(h.t), hh = h.t.slice(0, 2); return `Block ${a}–${b} · ${hh}:00–${String(Number(hh) + 1).padStart(2, "0")}:00`; })()}
+      </div>
       {TIP_ROWS.filter((r) => !hidden.has(r.legend)).map((r) => (
         <div key={r.key} className="flex items-center justify-between gap-4 py-0.5">
           <span className="flex items-center gap-1.5 text-muted-foreground"><i className="inline-block h-2 w-2 rounded-full" style={{ background: r.color }} />{r.label}:</span>
@@ -53,6 +55,9 @@ function IconTick({ x = 0, y = 0, index = 0, data }: { x?: number; y?: number; i
 /** Wind speed under each bar with a gust arrow, the time below that. The API has no wind
  *  direction, so the arrow shows gustiness instead: upright when gusts are close to the mean
  *  wind, turning towards ↓ as gusts reach twice the mean or more. */
+/** "13:30" (hour 13's midpoint) → [53, 56]: the first and last block of that hour. */
+const hourBlocks = (t: string): [number, number] => { const h = Number(t.split(":")[0]); return [h * 4 + 1, h * 4 + 4]; };
+
 function WindTick({ x = 0, y = 0, index = 0, data }: { x?: number; y?: number; index?: number; data: WeatherHour[] }) {
   const h = data[index];
   if (!h) return null;
@@ -61,7 +66,8 @@ function WindTick({ x = 0, y = 0, index = 0, data }: { x?: number; y?: number; i
       <text x={x - 2} y={y + 10} textAnchor="end" fontSize={9.5} fill="hsl(var(--muted-foreground))">{Math.round(h.wind)}</text>
       <path d="M0,-4 L0,4 M-2.5,-1.5 L0,-4 L2.5,-1.5" fill="none" stroke="hsl(var(--muted-foreground))" strokeWidth={1.1} strokeLinecap="round"
         transform={`translate(${x + 5} ${y + 6.5}) rotate(${Math.round(Math.min(180, Math.max(0, (h.gust / (h.wind || 1) - 1) * 180)))})`} />
-      <text x={x} y={y + 24} textAnchor="middle" fontSize={10} fill="hsl(var(--muted-foreground))">{h.t}</text>
+      {/* each point is one hour = 4 blocks; label it with its first block number (1, 5, 9 … 93) */}
+      <text x={x} y={y + 24} textAnchor="middle" fontSize={10} fill="hsl(var(--muted-foreground))">{hourBlocks(h.t)[0]}</text>
     </g>
   );
 }

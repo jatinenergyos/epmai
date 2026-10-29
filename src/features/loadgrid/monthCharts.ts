@@ -11,6 +11,23 @@ import { SERIES_COLORS } from "./constants"
 
 export type Kind = "line" | "box"
 
+const BLOCK_LABELS = Array.from({ length: 96 }, (_, i) => String(i + 1))
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`
+/** "01-Mar-2027" from "2027-03-01". */
+const dayDate = (iso: string) => { const [y, m, d] = iso.split("-"); return `${d}-${MON[Number(m) - 1]}-${y}` }
+
+/* eslint-disable @typescript-eslint/no-explicit-any -- Highcharts formatter context */
+/** Load-profile tooltip: the day's date, the block with its 15-min range, then "● day: value MW". */
+function profileTooltip(this: any): string {
+  const p = this.point ?? this, s = p.series, b = p.index as number
+  const date = s.options.custom?.date as string | undefined
+  return (date ? `<span style="font-size:11px;font-weight:600">${dayDate(date)}</span><br/>` : "")
+    + `<span style="font-size:11px">Block ${b + 1} ${hhmm(b * 15)}-${hhmm(b * 15 + 15)}</span><br/>`
+    + `<span style="color:${p.color}">●</span> ${s.name}: <b>${Math.round(p.y).toLocaleString("en-IN")} MW</b>`
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 /**
  * Compact chart for a grid cell. Pass `width` (the cell's settled inner width)
  * so Highcharts sizes deterministically — without it, a chart mounted before its
@@ -174,16 +191,18 @@ export function fullMonthOptions(
   if (kind === "line") {
     return baseChart(t, {
       chart: { type: "line", zooming: { type: "x" } },
-      xAxis: { categories: INTERVAL_LABELS, tickInterval: 8, title: { text: "Time of day" } },
+      // x-axis in block numbers (1–96); the tooltip still gives each block's time range.
+      xAxis: { categories: BLOCK_LABELS, tickInterval: 4, title: { text: "Block" } },
       yAxis: { title: { text: yLabel } },
       legend: sideLegend(t, 520),
       plotOptions: { series: { lineWidth: 1.3, marker: { enabled: false }, animation: false } },
-      tooltip: { valueSuffix: " MW", valueDecimals: 0 },
+      tooltip: { formatter: profileTooltip },
       series: days.map((d, i) => ({
         type: "line",
         name: dayLabel(d),
         color: SERIES_COLORS[i % SERIES_COLORS.length],
         data: d.values,
+        custom: { date: d.date },
       })),
     })
   }

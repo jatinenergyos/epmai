@@ -168,39 +168,47 @@ export function LazyChart({
   )
 }
 
-/* ---------------- StyledChart (line thickness by volume) ---------------- */
+/* ---------------- StyledChart (line thickness by value, block by block) ---------------- */
 
 const LINE_TYPES = new Set(["line", "spline", "area", "areaspline"])
-const MIN_W = 1.2
-const MAX_W = 4.4
+/** Number of value bands; each band has its own line width (see .lg-varwidth in LoadGrid.css). */
+const WIDTH_BANDS = 8
 
-function volume(data: unknown): number {
-  if (!Array.isArray(data)) return 0
-  let s = 0
-  for (const p of data) {
-    if (typeof p === "number") s += Math.abs(p)
-    else if (Array.isArray(p)) s += Math.abs((p[2] ?? p[1] ?? p[0] ?? 0) as number)
-  }
-  return s
+/** Numeric y of a data point (plain number or [x, y]). */
+function yOf(p: unknown): number | null {
+  if (typeof p === "number") return p
+  if (Array.isArray(p)) return typeof p[1] === "number" ? p[1] : null
+  return null
 }
 
+/** Each line's width follows its own value at every block: higher MW draws thicker, lower MW
+ *  thinner. Highcharts can't vary width along one line, so the value range is split into
+ *  WIDTH_BANDS zones; each zone's path gets a class (highcharts-zone-graph-N) that the CSS under
+ *  .lg-varwidth gives a stroke width. */
 function applySeriesStyle(options: ChartOptions): ChartOptions {
   const series = (options.series ?? []) as Array<Record<string, unknown>>
   const stylable = series.filter((s) => LINE_TYPES.has(s.type as string))
-  if (stylable.length < 2) return options
+  if (!stylable.length) return options
 
-  const vols = stylable.map((s) => volume(s.data))
-  const lo = Math.min(...vols)
-  const hi = Math.max(...vols)
-  const widthOf = (v: number) =>
-    hi === lo ? (MIN_W + MAX_W) / 2 : Math.round((MIN_W + ((v - lo) / (hi - lo)) * (MAX_W - MIN_W)) * 10) / 10
+  let lo = Infinity, hi = -Infinity
+  for (const s of stylable) {
+    for (const p of (s.data as unknown[]) ?? []) {
+      const y = yOf(p)
+      if (y == null) continue
+      if (y < lo) lo = y
+      if (y > hi) hi = y
+    }
+  }
+  if (!isFinite(lo) || hi <= lo) return options
 
-  let si = 0
-  const newSeries = series.map((s) => {
-    if (!LINE_TYPES.has(s.type as string)) return s
-    return { ...s, lineWidth: widthOf(vols[si++]) }
-  })
-  return { ...options, series: newSeries as ChartOptions["series"] }
+  const step = (hi - lo) / WIDTH_BANDS
+  const zones = Array.from({ length: WIDTH_BANDS }, (_, i) =>
+    i < WIDTH_BANDS - 1 ? { value: lo + step * (i + 1) } : {},
+  )
+  const newSeries = series.map((s) => (LINE_TYPES.has(s.type as string) ? { ...s, zoneAxis: "y", zones } : s))
+  const chart = (options.chart ?? {}) as Record<string, unknown>
+  const className = [chart.className, "lg-varwidth"].filter(Boolean).join(" ")
+  return { ...options, chart: { ...chart, className }, series: newSeries as ChartOptions["series"] }
 }
 
 function StyledChart({ options }: { options: ChartOptions }) {
