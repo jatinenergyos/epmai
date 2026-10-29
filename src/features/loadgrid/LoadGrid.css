@@ -234,3 +234,22 @@
   background: var(--lg-border-strong); border: none;
 }
 .lg-viewer-dots button.active { background: var(--lg-accent); }
+
+/* Viewer lines: width follows the value at each block (8 value bands, low → high; see
+   applySeriesStyle in compare.tsx). The hovered line gets a bit thicker in every band. */
+.lg-varwidth .highcharts-zone-graph-0 { stroke-width: 0.8px !important; }
+.lg-varwidth .highcharts-zone-graph-1 { stroke-width: 1.3px !important; }
+.lg-varwidth .highcharts-zone-graph-2 { stroke-width: 1.8px !important; }
+.lg-varwidth .highcharts-zone-graph-3 { stroke-width: 2.3px !important; }
+.lg-varwidth .highcharts-zone-graph-4 { stroke-width: 2.8px !important; }
+.lg-varwidth .highcharts-zone-graph-5 { stroke-width: 3.3px !important; }
+.lg-varwidth .highcharts-zone-graph-6 { stroke-width: 3.9px !important; }
+.lg-varwidth .highcharts-zone-graph-7 { stroke-width: 4.6px !important; }
+.lg-varwidth .highcharts-series-hover .highcharts-zone-graph-0 { stroke-width: 2.2px !important; }
+.lg-varwidth .highcharts-series-hover .highcharts-zone-graph-1 { stroke-width: 2.7px !important; }
+.lg-varwidth .highcharts-series-hover .highcharts-zone-graph-2 { stroke-width: 3.2px !important; }
+.lg-varwidth .highcharts-series-hover .highcharts-zone-graph-3 { stroke-width: 3.7px !important; }
+.lg-varwidth .highcharts-series-hover .highcharts-zone-graph-4 { stroke-width: 4.2px !important; }
+.lg-varwidth .highcharts-series-hover .highcharts-zone-graph-5 { stroke-width: 4.7px !important; }
+.lg-varwidth .highcharts-series-hover .highcharts-zone-graph-6 { stroke-width: 5.3px !important; }
+.lg-varwidth .highcharts-series-hover .highcharts-zone-graph-7 { stroke-width: 6.0px !important; }

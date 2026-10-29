@@ -25,6 +25,8 @@ export type DayForecast = {
   actual: number[] | null;
   mape: number[] | null;
   roastering: number[] | null;
+  /** UDM per block — also only for today or earlier. */
+  udm: number[] | null;
   /** System Forecast error bands from the API, null when there are no actuals yet. */
   errorRanges: { range: string; blocks: number; percent: number }[] | null;
   loading: boolean;
@@ -40,7 +42,7 @@ export function useDayForecast(date: string): DayForecast {
   }, [dispatch, date]);
   const day = dayData?.date === date ? dayData : null;
   return {
-    forecast: day?.forecast ?? null, actual: day?.actual ?? null, mape: day?.mape ?? null, roastering: day?.roastering ?? null,
+    forecast: day?.forecast ?? null, actual: day?.actual ?? null, mape: day?.mape ?? null, roastering: day?.roastering ?? null, udm: day?.udm ?? null,
     errorRanges: day?.errorRanges ?? null,
     loading: dayLoading, error: dayError,
   };
@@ -52,6 +54,8 @@ export type Actuals = {
   actual: number[];
   roastering: number[];
   mape: number[];
+  /** UDM per block from the API; null when it isn't there. */
+  udm: number[] | null;
   manual: number[] | null;
   manualMape: number[] | null;
 };
@@ -60,12 +64,12 @@ export type Actuals = {
  *  otherwise, which hides those series. If the API leaves out MAPE it's worked out as
  *  |actual − forecast| / actual, and a missing Roastering draws as zero. Manual Forecast
  *  isn't available yet, so it stays null and its series are hidden. */
-export function buildActuals(forecast: number[], d: Pick<DayForecast, "actual" | "mape" | "roastering">): Actuals | null {
+export function buildActuals(forecast: number[], d: Pick<DayForecast, "actual" | "mape" | "roastering" | "udm">): Actuals | null {
   if (!d.actual) return null;
   // TODO: connect API — manual forecast (and its MAPE)
   const actual = d.actual;
   const mape = d.mape ?? actual.map((a, b) => +(Math.abs(a - forecast[b]) / (a || 1) * 100).toFixed(2));
-  return { actual, roastering: d.roastering ?? actual.map(() => 0), mape, manual: null, manualMape: null };
+  return { actual, roastering: d.roastering ?? actual.map(() => 0), mape, udm: d.udm ?? null, manual: null, manualMape: null };
 }
 
 /* ---------- weather (API: weather/multi) ---------- */

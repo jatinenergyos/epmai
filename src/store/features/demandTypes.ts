@@ -88,18 +88,26 @@ export interface WeatherApiResponse {
 }
 
 /** GET /day_ahead?date= — the day's System Forecast plus, for today or earlier, the actuals. */
+/** day_ahead?data_id=102110&from_date&to_date&location_id&forecasted_by — one entry per day;
+ *  past days (`show_actuals`) also carry actual, roastering, MAPE and UDM per block. */
 export interface DayAheadApiResponse {
-    date: string;
+    data_id: number;
+    horizon: string;
+    from_date: string;
+    to_date: string;
     today: string;
-    show_accuracy: boolean;
     count: number;
-    forecasts: {
-        data_id: number;
-        forecasted_by: string;
-        blocks: Record<string, number>;
-        actual_blocks?: Record<string, number>;
-        mape_blocks?: Record<string, number>;
-        roastering_blocks?: Record<string, number>;
+    days: {
+        date: string;
+        show_actuals: boolean;
+        blocks: {
+            block: number;
+            forecast_value: number;
+            actual_value?: number;
+            roastering?: number;
+            mape?: number;
+            udm?: number;
+        }[];
         mape_error_ranges?: { error_range: string; blocks: number; percent: number }[];
         day_mape?: number;
     }[];
@@ -112,6 +120,8 @@ export interface DayAheadData {
     actual: number[] | null;
     mape: number[] | null;
     roastering: number[] | null;
+    /** UDM per block (past days only). */
+    udm: number[] | null;
     /** System Forecast error bands (share of blocks per MAPE range), as the API computes them. */
     errorRanges: { range: string; blocks: number; percent: number }[] | null;
     dayMape: number | null;
@@ -141,6 +151,16 @@ export interface DemandState {
     weatherLoading: boolean;
     weatherError: string | null;
     weatherRequestId: string | null;
+    // Week ahead (day_ahead API, data_id=102120): one DayAheadData per day of the Monday–Sunday week.
+    weekAhead: { from: string; days: DayAheadData[] } | null;
+    weekAheadLoading: boolean;
+    weekAheadError: string | null;
+    weekAheadRequestId: string | null;
+    // Month ahead (day_ahead API, data_id=102130): one DayAheadData per day of the calendar month.
+    monthAhead: { from: string; days: DayAheadData[] } | null;
+    monthAheadLoading: boolean;
+    monthAheadError: string | null;
+    monthAheadRequestId: string | null;
     // Long term (data_id=102150): daily 96-block forecast + the seasons of each year it spans.
     longTermData: DemandCalendarData | null;
     longTermLoading: boolean;

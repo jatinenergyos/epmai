@@ -38,6 +38,14 @@ const initialState: DemandState = {
     weatherLoading: false,
     weatherError: null,
     weatherRequestId: null,
+    weekAhead: null,
+    weekAheadLoading: false,
+    weekAheadError: null,
+    weekAheadRequestId: null,
+    monthAhead: null,
+    monthAheadLoading: false,
+    monthAheadError: null,
+    monthAheadRequestId: null,
     longTermData: null,
     longTermLoading: false,
     longTermError: null,
@@ -125,36 +133,100 @@ export const fetchWeekDemandForecast = createAsyncThunk<
     return transformDemandRows(json.rows);
 });
 
-// 3. Day-ahead Thunk — System Forecast and (today or earlier) Actual for one date
+// 3. Day-ahead Thunk (data_id=102110, from_date = to_date): System Forecast for one date, plus —
+// for today or earlier — Actual, Roastering, MAPE and UDM per block and the error bands.
 export const fetchDayAhead = createAsyncThunk<DayAheadData, { date: string }>(
     "demand/fetchDayAhead",
     async ({ date }) => {
-        const res = await fetch(`${BASE_URL}day_ahead?${new URLSearchParams({ date }).toString()}`, {
+        const query = new URLSearchParams({
+            data_id: "102110",
+            from_date: date,
+            to_date: date,
+            location_id: "10030",
+            forecasted_by: "System",
+        });
+        const res = await fetch(`${BASE_URL}day_ahead?${query.toString()}`, {
             headers: { accept: "*/*" },
         });
 
         // 404 = no forecast saved for that date: an empty day, not a failure.
-        if (res.status === 404) return { date, forecast: null, actual: null, mape: null, roastering: null, errorRanges: null, dayMape: null };
+        if (res.status === 404) return emptyDay(date);
         if (!res.ok) throw new Error(`Failed to fetch day-ahead forecast: ${res.statusText}`);
         const json: DayAheadApiResponse = await res.json();
-        const f = json.forecasts?.find((x) => x.forecasted_by === "System") ?? json.forecasts?.[0];
-        const toArr = (o?: Record<string, number>) => {
-            if (!o) return null;
-            const a = Array.from({ length: 96 }, (_, b) => Number(o[String(b + 1)]));
-            return a.some((v) => Number.isNaN(v)) ? null : a;
-        };
-        return {
-            date,
-            forecast: toArr(f?.blocks),
-            actual: json.show_accuracy ? toArr(f?.actual_blocks) : null,
-            mape: json.show_accuracy ? toArr(f?.mape_blocks) : null,
-            roastering: json.show_accuracy ? toArr(f?.roastering_blocks) : null,
-            errorRanges: json.show_accuracy && f?.mape_error_ranges?.length
-                ? f.mape_error_ranges.map((r) => ({ range: r.error_range, blocks: r.blocks, percent: r.percent }))
-                : null,
-            dayMape: f?.day_mape ?? null,
-        };
+        return dayFromApi(json.days?.find((d) => d.date === date) ?? json.days?.[0], date);
     },
+);
+
+const emptyDay = (date: string): DayAheadData =>
+    ({ date, forecast: null, actual: null, mape: null, roastering: null, udm: null, errorRanges: null, dayMape: null });
+
+/** One API day → 96-block arrays. Actual / Roastering / MAPE / UDM and the error bands only when
+ *  the API has actuals for it (today or earlier). */
+function dayFromApi(day: DayAheadApiResponse["days"][number] | undefined, date: string): DayAheadData {
+    if (!day?.blocks?.length) return emptyDay(date);
+    // One field of every block, in block order; null when any block lacks it.
+    const byBlock = [...day.blocks].sort((a, b) => a.block - b.block);
+    const col = (pick: (b: DayAheadApiResponse["days"][number]["blocks"][number]) => number | undefined) => {
+        const a = Array.from({ length: 96 }, (_, i) => Number(pick(byBlock[i] ?? ({} as never))));
+        return a.some((v) => Number.isNaN(v)) ? null : a;
+    };
+    const past = day.show_actuals;
+    return {
+        date,
+        forecast: col((b) => b.forecast_value),
+        actual: past ? col((b) => b.actual_value) : null,
+        mape: past ? col((b) => b.mape) : null,
+        roastering: past ? col((b) => b.roastering) : null,
+        udm: past ? col((b) => b.udm) : null,
+        errorRanges: past && day.mape_error_ranges?.length
+            ? day.mape_error_ranges.map((r) => ({ range: r.error_range, blocks: r.blocks, percent: r.percent }))
+            : null,
+        dayMape: day.day_mape ?? null,
+    };
+}
+
+/** day_ahead for a date range and horizon (data_id): one DayAheadData per date from `from_date` to
+ *  `to_date`, in order; dates the API has nothing for (or a 404 for the whole range) come back empty. */
+async function loadDayAheadRange(
+    dataId: number, from_date: string, to_date: string, sync = false,
+): Promise<{ from: string; days: DayAheadData[]; changed: boolean }> {
+    const query = new URLSearchParams({
+        data_id: String(dataId),
+        from_date,
+        to_date,
+        location_id: "10030",
+        forecasted_by: "System",
+    });
+    // Cache-first (IndexedDB, see lib/idbCache.ts): the saved response is used when there is one;
+    // `sync` calls the API and saves it if it differs. A 404 (nothing saved) is cached as null.
+    const { value: json, changed } = await cachedJson<DayAheadApiResponse | null>(`day-ahead:${query.toString()}`, async () => {
+        const res = await fetch(`${BASE_URL}day_ahead?${query.toString()}`, {
+            headers: { accept: "*/*" },
+        });
+        if (res.status === 404) return null;
+        if (!res.ok) throw new Error(`Failed to fetch forecast: ${res.statusText}`);
+        return (await res.json()) as DayAheadApiResponse;
+    }, sync);
+    const dates: string[] = [];
+    for (const d = new Date(from_date + "T00:00:00"), end = new Date(to_date + "T00:00:00"); d <= end; d.setDate(d.getDate() + 1)) {
+        dates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+    }
+    return { from: from_date, changed, days: dates.map((date) => dayFromApi(json?.days?.find((d) => d.date === date), date)) };
+}
+
+type RangeArgs = { from_date: string; to_date: string; sync?: boolean };
+type RangeOut = { from: string; days: DayAheadData[]; changed: boolean };
+
+// 3b. Week-ahead Thunk (day_ahead API, data_id=102120): the Monday–Sunday week.
+export const fetchWeekDayAhead = createAsyncThunk<RangeOut, RangeArgs>(
+    "demand/fetchWeekDayAhead",
+    ({ from_date, to_date, sync }) => loadDayAheadRange(102120, from_date, to_date, sync),
+);
+
+// 3c. Month-ahead Thunk (day_ahead API, data_id=102130): one calendar month.
+export const fetchMonthDayAhead = createAsyncThunk<RangeOut, RangeArgs>(
+    "demand/fetchMonthDayAhead",
+    ({ from_date, to_date, sync }) => loadDayAheadRange(102130, from_date, to_date, sync),
 );
 
 // 4. Year-ahead Thunk (data_id=102140). Cache-first: the saved IndexedDB copy is used when there
@@ -375,6 +447,43 @@ export const demandSlice = createSlice({
                 state.dayLoading = false;
                 state.dayData = null;
                 state.dayError = action.error.message || "Failed to load day forecast";
+            });
+
+        // Week Ahead (day_ahead, 102120) Handlers
+        builder
+            .addCase(fetchWeekDayAhead.pending, (state, action) => {
+                state.weekAheadRequestId = action.meta.requestId;
+                // A Sync DB keeps the current cards on screen while it checks the API.
+                if (!action.meta.arg.sync) state.weekAheadLoading = true;
+                state.weekAheadError = null;
+            })
+            .addCase(fetchWeekDayAhead.fulfilled, (state, action) => {
+                if (action.meta.requestId !== state.weekAheadRequestId) return;
+                state.weekAheadLoading = false;
+                state.weekAhead = { from: action.payload.from, days: action.payload.days };
+            })
+            .addCase(fetchWeekDayAhead.rejected, (state, action) => {
+                if (action.meta.requestId !== state.weekAheadRequestId) return;
+                state.weekAheadLoading = false;
+                state.weekAheadError = action.error.message || "Failed to load week forecast";
+            });
+
+        // Month Ahead (day_ahead, 102130) Handlers
+        builder
+            .addCase(fetchMonthDayAhead.pending, (state, action) => {
+                state.monthAheadRequestId = action.meta.requestId;
+                if (!action.meta.arg.sync) state.monthAheadLoading = true;
+                state.monthAheadError = null;
+            })
+            .addCase(fetchMonthDayAhead.fulfilled, (state, action) => {
+                if (action.meta.requestId !== state.monthAheadRequestId) return;
+                state.monthAheadLoading = false;
+                state.monthAhead = { from: action.payload.from, days: action.payload.days };
+            })
+            .addCase(fetchMonthDayAhead.rejected, (state, action) => {
+                if (action.meta.requestId !== state.monthAheadRequestId) return;
+                state.monthAheadLoading = false;
+                state.monthAheadError = action.error.message || "Failed to load month forecast";
             });
 
         // Year Ahead Handlers

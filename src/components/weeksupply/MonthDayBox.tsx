@@ -46,7 +46,7 @@ export function MonthDayBox({ dayNum, isToday, isPast, currentBlock, type, day, 
       aria-label={`Open day ${dayNum}`}
     >
       <div className="top">
-        <span className="dn">{dayNum}{isToday && <small style={{ color: "#0d9488" }}>today</small>}</span>
+        <span className="dn" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{dayNum}{isToday && <span className="rounded bg-teal-500 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-white">Today</span>}</span>
         {stats && !isLoading && <span className="pk">Pk {stats.peak.toLocaleString("en-IN")}</span>}
         {stats && !isLoading && <span className="dc-chip nt">{stats.mu.toLocaleString("en-IN")} MU</span>}
       </div>
