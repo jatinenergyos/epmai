@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { BLOCKS, blockRange, isoOf, parseIso, todayIso } from "./weekSupplyData";
 
 /** "28-10-2026, Today" / ", Tomorrow" / ", Yesterday", or just the date. */
@@ -11,11 +12,11 @@ function dayLabel(iso: string): string {
 }
 
 /** ‹ date › — one day at a time; › is disabled when `canNext` is false. */
-export function DayNavigator({ date, onChange, canNext }: { date: string; onChange: (iso: string) => void; canNext: boolean }) {
+export function DayNavigator({ date, onChange, canNext, className }: { date: string; onChange: (iso: string) => void; canNext: boolean; className?: string }) {
   const shift = (dir: -1 | 1) => { const d = parseIso(date); d.setDate(d.getDate() + dir); onChange(isoOf(d)); };
   const btn = "grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent";
   return (
-    <div className="inline-flex items-center gap-1 rounded-[10px] border bg-card p-0.5 text-[12px]">
+    <div className={cn("inline-flex items-center gap-1 rounded-[10px] border bg-card p-0.5 text-[12px]", className)}>
       <button type="button" aria-label="Previous day" className={btn} onClick={() => shift(-1)}><ChevronLeft className="h-3.5 w-3.5" /></button>
       <span className="min-w-[9.5rem] whitespace-nowrap px-2 text-center font-semibold">{dayLabel(date)}</span>
       <button type="button" aria-label="Next day" className={btn} disabled={!canNext} onClick={() => shift(1)}><ChevronRight className="h-3.5 w-3.5" /></button>

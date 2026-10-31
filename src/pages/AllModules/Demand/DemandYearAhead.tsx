@@ -8,22 +8,38 @@ import { SyncDbButton } from "@/components/SyncDbButton";
 import { idbDeletePrefix } from "@/lib/idbCache";
 import { formatIso } from "../shared/HorizonControls";
 
+type YearType = "current" | "calendar" | "financial";
+const YEAR_TYPES: { value: YearType; label: string }[] = [
+  { value: "current", label: "Current Year" },
+  { value: "calendar", label: "Calendar Year" },
+  { value: "financial", label: "Financial Year" },
+];
+
 /** Demand · Year ahead — Planning-horizon view. */
 export function DemandYearAhead() {
   const dispatch = useAppDispatch();
   const { yearData, yearLoading, yearError, seasons, yearDay } = useAppSelector((state) => state.demand);
 
-  // A 12-month window starting at the current month — but never before Nov 2026, where the
-  // forecast begins — so Nov 2026 – Oct 2027 holds until 30 Nov, then rolls a month at a time
-  // (Dec 2026 – Nov 2027 from 1 Dec). The picker steps it a year back, never past the default.
+  // Year type (default Current Year), stepped a year at a time by the picker, never past the default:
+  //  · Current Year — 12 months from the current month, but never before Nov 2026 where the
+  //    forecast begins (Nov 2026 – Oct 2027 until 30 Nov, then it rolls a month at a time).
+  //  · Calendar Year — Jan – Dec of the current year.
+  //  · Financial Year — Apr – Mar of the current financial year.
+  const [yearType, setYearType] = useState<YearType>("current");
   const [yearOffset, setYearOffset] = useState(0);
   const yearRange = useMemo(() => {
-    const cur = new Date(NOW.getFullYear(), NOW.getMonth(), 1), first = new Date(2026, 10, 1);
-    const base = cur < first ? first : cur;
+    const y = NOW.getFullYear();
+    let base: Date;
+    if (yearType === "calendar") base = new Date(y, 0, 1);
+    else if (yearType === "financial") base = new Date(NOW.getMonth() >= 3 ? y : y - 1, 3, 1);
+    else {
+      const cur = new Date(y, NOW.getMonth(), 1), first = new Date(2026, 10, 1);
+      base = cur < first ? first : cur;
+    }
     const start = new Date(base.getFullYear() + yearOffset, base.getMonth(), 1);
     const end = new Date(start.getFullYear() + 1, start.getMonth(), 0);
     return { from: formatIso(start), to: formatIso(end) };
-  }, [yearOffset]);
+  }, [yearType, yearOffset]);
   useEffect(() => {
     dispatch(fetchYearDemandForecast({ data_id: 102140, from_date: yearRange.from, to_date: yearRange.to, location_id: 10030, forcasted_by: "System", table: "daily" }));
     dispatch(fetchSeasons({ start_date: yearRange.from, end_date: yearRange.to }));
@@ -45,7 +61,16 @@ export function DemandYearAhead() {
     seasons, day: yearDay, loadDay: loadYearDay, range: yearRange,
     shift: (dir) => setYearOffset((o) => Math.min(0, o + dir)), canNext: yearOffset < 0,
     extra: <SyncDbButton onSync={syncDb} />,
-  }), [seasons, yearDay, loadYearDay, yearRange, yearOffset, syncDb]);
+    before: (
+      <select
+        aria-label="Year type" value={yearType}
+        onChange={(e) => { setYearType(e.target.value as YearType); setYearOffset(0); }}
+        className="h-7 rounded-md border bg-card px-2 text-[12px] font-medium"
+      >
+        {YEAR_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+      </select>
+    ),
+  }), [seasons, yearDay, loadYearDay, yearRange, yearOffset, yearType, syncDb]);
 
   return (
     <>

@@ -29,6 +29,8 @@ export type YearApi = {
   canNext: boolean;
   /** Extra controls after the range picker (e.g. Sync DB). */
   extra?: ReactNode;
+  /** Shown just left of the ◀ range ▶ picker (e.g. the year-type select). */
+  before?: ReactNode;
 };
 
 /* ---------- data shapes ---------- */
@@ -1292,8 +1294,9 @@ function YearView({ D, PI, modes, defaultMode, supplyFocus = false, hideKpis = f
               </span>
             )}
           </span>
+          {yearApi?.before && <div style={{ marginLeft: "auto" }}>{yearApi.before}</div>}
           {yearApi && (
-            <div className="dc-monthbar" style={{ marginLeft: "auto" }}>
+            <div className="dc-monthbar" style={{ marginLeft: yearApi.before ? 8 : "auto" }}>
               <button aria-label="Previous year" onClick={() => yearApi.shift(-1)}>◀</button>
               <span className="num" style={{ minWidth: "13ch", textAlign: "center", fontWeight: 600 }}>{rangeLabel(yearApi.range)}</span>
               <button aria-label="Next year" disabled={!yearApi.canNext} onClick={() => yearApi.shift(1)}>▶</button>
