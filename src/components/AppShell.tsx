@@ -65,9 +65,10 @@ export function AppShell() {
   // Week ahead for Supply/Demand renders the same small-multiples day grid as Month ahead,
   // so it claims the full window too.
   const weekGridMod = planMod === "supply" || planMod === "demand" || planMod === "mi";
-  // Day ahead for Supply/Demand drops its title/KPI row for a day-badge control row,
+  // Day ahead for Supply/Demand drops its title/KPI row for a day-badge control row (Market
+  // Intelligence's is the full-window Market Detail page),
   // same reasoning as Week ahead above.
-  const dayGridMod = planMod === "supply" || planMod === "demand";
+  const dayGridMod = planMod === "supply" || planMod === "demand" || planMod === "mi";
   const isHorizonCalendar = (pathname === "/horizon" || isModulePage) &&
     ((planTf === "mo" && monthCalMod) || (planTf === "yr" && (planMod === "overview" || planMod === "demand" || planMod === "supply" || planMod === "mi")) || (planTf === "wk" && weekGridMod) || (planTf === "da" && dayGridMod));
   // The Long-term horizon lays out the full-screen load-profile / box-plot grids and the wide
